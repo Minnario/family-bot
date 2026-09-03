@@ -26,7 +26,8 @@ from dotenv import load_dotenv
 HERE = Path(__file__).parent
 
 # Ключ берётся из .env рядом со скриптом. Экспортировать вручную не нужно.
-load_dotenv(HERE / ".env")
+load_dotenv(HERE / ".env")           # старое место, рядом со скриптом
+load_dotenv(HERE.parent / ".env")    # общий .env в корне проекта
 
 # Ставки за 1M токенов (input, output), USD. Проверять на
 # https://www.anthropic.com/pricing перед тем как доверять цифрам.
