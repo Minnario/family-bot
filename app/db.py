@@ -298,7 +298,10 @@ if __name__ == "__main__":
         })
         print("ПРОВАЛ — база приняла противоречивую строку!")
     except psycopg.errors.CheckViolation as e:
-        name = str(e).split('"')[1] if '"' in str(e) else "?"
+        # Имя ограничения берём из структурированной диагностики, а не
+        # разбором текста ошибки: там первым идёт имя таблицы, и парсинг
+        # по кавычкам давал "tasks" вместо "list_matches_date".
+        name = e.diag.constraint_name or "?"
         print(f"ок, отвергнуто ({name})")
 
     print("\nЖурнал сообщений...", end=" ")
