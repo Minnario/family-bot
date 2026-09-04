@@ -11,7 +11,7 @@
 
 import json
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -198,6 +198,182 @@ def tasks_for_date(day: date) -> List[Dict[str, Any]]:
                  ORDER BY time_start ASC NULLS LAST, id
             """, (day,))
             return cur.fetchall()
+
+
+# ------------------------------------------------------------------
+# Запросы планировщика
+# ------------------------------------------------------------------
+
+# Задачи на паузе исключаются из всех выборок планировщика.
+# Пауза бывает трёх уровней: вся система, человек, отдельная задача.
+_NOT_PAUSED = """
+    NOT EXISTS (
+        SELECT 1 FROM pauses p
+         WHERE (p.starts_on <= CURRENT_DATE)
+           AND (p.ends_on IS NULL OR p.ends_on >= CURRENT_DATE)
+           AND (
+                (p.scope_person IS NULL AND p.task_id IS NULL)  -- вся система
+             OR (p.scope_person = t.assignee)                    -- человек
+             OR (p.task_id = t.id)                               -- задача
+           )
+    )
+"""
+
+
+def tasks_due_now(now: datetime) -> List[Dict[str, Any]]:
+    """
+    Задачи, до начала которых осталось не больше reminder_lead минут
+    и которые ещё не начались.
+
+    Окно, а не точное совпадение: планировщик просыпается раз в пять
+    минут и может не попасть ровно в нужную минуту. Задача с лидом 10
+    попадёт в выборку в интервале от -10 до 0 минут до старта.
+
+    От повторной отправки защищает не этот запрос, а проверка
+    reminder_sent(): в окно задача попадёт дважды или трижды.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT t.id, t.title, t.assignee, t.time_mode,
+                       t.time_start, t.time_end, t.reminder_lead
+                  FROM tasks t
+                 WHERE t.status = 'pending'
+                   AND t.date = %(today)s
+                   AND t.time_mode IN ('exact', 'range')
+                   AND t.time_start IS NOT NULL
+                   AND %(now)s >= (t.time_start - make_interval(mins => t.reminder_lead))
+                   AND %(now)s <  t.time_start
+                   AND {_NOT_PAUSED}
+                 ORDER BY t.time_start
+            """, {"today": now.date(), "now": now.time()})
+            return cur.fetchall()
+
+
+def tasks_daypart_now(now: datetime, daypart_name: str) -> List[Dict[str, Any]]:
+    """Задачи на сегодня с указанной частью дня — для пинга в начале окна."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT t.id, t.title, t.assignee, t.daypart
+                  FROM tasks t
+                 WHERE t.status = 'pending'
+                   AND t.date = %(today)s
+                   AND t.time_mode = 'daypart'
+                   AND t.daypart = %(dp)s
+                   AND {_NOT_PAUSED}
+                 ORDER BY t.id
+            """, {"today": now.date(), "dp": daypart_name})
+            return cur.fetchall()
+
+
+def tasks_overdue(today: date) -> List[Dict[str, Any]]:
+    """
+    Незакрытые задачи прошедших дней.
+
+    Автоматически никуда не переносятся — иначе факт «дело не сделано»
+    растворится, а postponed_count перестанет что-либо значить.
+    Просто показываются как просроченные, решение за человеком.
+
+    carry_over = FALSE (ежедневные) исключены: они сгорают, а не висят.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT t.id, t.title, t.assignee, t.date, t.postponed_count
+                  FROM tasks t
+                 WHERE t.status = 'pending'
+                   AND t.carry_over
+                   AND t.date IS NOT NULL
+                   AND t.date < %(today)s
+                   AND {_NOT_PAUSED}
+                 ORDER BY t.date, t.id
+            """, {"today": today})
+            return cur.fetchall()
+
+
+def tasks_backlog(today: date) -> List[Dict[str, Any]]:
+    """Отдельные дела. Дедлайны ближе к сроку идут первыми."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT t.id, t.title, t.assignee, t.deadline, t.postponed_count
+                  FROM tasks t
+                 WHERE t.status = 'pending'
+                   AND t.list = 'backlog'
+                   AND {_NOT_PAUSED}
+                 ORDER BY t.deadline ASC NULLS LAST, t.id
+            """)
+            return cur.fetchall()
+
+
+def tasks_daily() -> List[Dict[str, Any]]:
+    """Ежедневные дела — для галочек в вечерней сверке."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT t.id, t.title, t.assignee, t.status
+                  FROM tasks t
+                 WHERE t.list = 'daily'
+                   AND t.status = 'pending'
+                   AND {_NOT_PAUSED}
+                 ORDER BY t.id
+            """)
+            return cur.fetchall()
+
+
+def deadlines_soon(today: date, days: int = 1) -> List[Dict[str, Any]]:
+    """Задачи с дедлайном сегодня или в ближайшие N дней."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT t.id, t.title, t.assignee, t.deadline
+                  FROM tasks t
+                 WHERE t.status = 'pending'
+                   AND t.deadline IS NOT NULL
+                   AND t.deadline BETWEEN %(today)s AND %(limit)s
+                   AND {_NOT_PAUSED}
+                 ORDER BY t.deadline, t.id
+            """, {"today": today, "limit": today + timedelta(days=days)})
+            return cur.fetchall()
+
+
+# ------------------------------------------------------------------
+# Дедупликация напоминаний
+# ------------------------------------------------------------------
+
+def reminder_sent(task_id: int, kind: str, day: date) -> bool:
+    """
+    Отправляли ли уже такое напоминание сегодня.
+
+    Проверять надо ДО отправки. Уникальный индекс в базе тоже защищает,
+    но он сработает после того, как сообщение уже улетит в чат.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT 1 FROM reminders
+                 WHERE task_id = %s AND kind = %s AND sent_date = %s
+                 LIMIT 1
+            """, (task_id, kind, day))
+            return cur.fetchone() is not None
+
+
+def record_reminder(task_id: int, chat_id: int, message_id: int,
+                    kind: str, day: date) -> None:
+    """
+    Отмечает факт отправки. Вызывается ПОСЛЕ успешной отправки:
+    если запись сделать раньше и отправка упадёт, напоминание
+    потеряется молча.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO reminders
+                    (task_id, chat_id, message_id, kind, sent_date)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
+            """, (task_id, chat_id, message_id, kind, day))
 
 
 # ------------------------------------------------------------------

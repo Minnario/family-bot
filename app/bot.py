@@ -26,6 +26,7 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
 sys.path.insert(0, str(Path(__file__).parent))
 
 from handle import handle_message
+from scheduler import register_jobs
 
 ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
@@ -142,6 +143,16 @@ def main() -> None:
     log.info("запуск: %s", "РАБОЧИЙ бот" if prod else "тестовый бот")
 
     app = Application.builder().token(token).build()
+
+    # Планировщик знает, куда слать сводки, только из настроек: в 08:00
+    # никто боту не пишет, и взять chat_id из входящего сообщения неоткуда.
+    chat_var = "TELEGRAM_CHAT_ID_PROD" if prod else "TELEGRAM_CHAT_ID_DEV"
+    chat_id = os.environ.get(chat_var)
+    if chat_id:
+        register_jobs(app, int(chat_id))
+    else:
+        log.warning("нет %s — расписание не запущено, "
+                    "бот только отвечает на сообщения", chat_var)
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("chatid", cmd_chatid))
