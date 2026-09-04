@@ -17,25 +17,17 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from db import create_tasks, list_open_tasks, log_message
+from db import (cancel_task, complete_task, create_tasks, get_task,
+                list_open_tasks, log_message, reschedule_task)
 from parser import ParseError, parse, TZ
+# Константы и вёрстка живут в ui.py: их используют и подтверждения,
+# и сводки. Держать имена членов семьи в двух файлах — гарантия того,
+# что однажды они разъедутся.
+from ui import ASSIGNEE_RU, DAYPART_RU, WEEKDAYS_SHORT, day_label
 
 # Тестовый chat_id для запусков из командной строки.
 # У настоящих групп Telegram он отрицательный и приходит из апдейта.
 CLI_CHAT_ID = 0
-
-WEEKDAYS_SHORT = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
-
-ASSIGNEE_RU = {
-    "seva": "Сева", "gleb": "Глеб", "kamilla": "Камилла",
-    "vova": "Вова", "sasha": "Саша",
-}
-
-DAYPART_RU = {"morning": "утром", "afternoon": "днём", "evening": "вечером"}
-
-LIST_RU = {"scheduled": "в план", "backlog": "в отдельные дела",
-           "daily": "в ежедневные"}
-
 
 # ------------------------------------------------------------------
 # Форматирование подтверждения
@@ -171,16 +163,59 @@ def handle_message(text: str,
                  for t, i in zip(tasks, ids)]
         return "\n".join(lines)
 
+    # --- закрытие ---
+    if action == "complete":
+        tid = result.get("task_id")
+        if not tid:
+            return "Не понял, какую задачу закрыть. Назови её точнее."
+        task = complete_task(tid)
+        if not task:
+            return "Такой открытой задачи нет — возможно, уже закрыта."
+        return f"✅ Закрыл: {ASSIGNEE_RU.get(task['assignee']) or 'дом'} — {task['title']}"
+
+    # --- перенос ---
+    if action == "reschedule":
+        tid = result.get("task_id")
+        if not tid:
+            return "Не понял, что переносить. Назови задачу точнее."
+
+        new_date = result.get("new_date")
+        keep_time = result.get("keep_time")
+        # По умолчанию время сохраняем: «перенеси теннис на четверг»
+        # обычно значит тот же час, просто другой день.
+        if keep_time is None:
+            keep_time = True
+
+        d = datetime.strptime(new_date, "%Y-%m-%d").date() if new_date else None
+        task = reschedule_task(tid, d, keep_time)
+        if not task:
+            return "Такой открытой задачи нет."
+
+        where = day_label(task["date"], today) if task["date"] else "отдельные дела"
+        note = ""
+        # Четвёртый перенос — сигнал, что задача не будет сделана.
+        # Лучше спросить сейчас, чем возить её в списке ещё месяц.
+        if (task.get("postponed_count") or 0) >= 4:
+            note = (f"\n⚠️ Переносится {task['postponed_count']}-й раз. "
+                    f"Может, отменить?")
+        return f"⏰ Перенёс: {task['title']} → {where}{note}"
+
+    # --- отмена ---
+    if action == "cancel":
+        tid = result.get("task_id")
+        if not tid:
+            return "Не понял, что отменить."
+        task = cancel_task(tid)
+        if not task:
+            return "Такой открытой задачи нет."
+        return f"🗑 Отменил: {task['title']}"
+
     # --- пока не реализовано ---
     # Честный ответ вместо молчания. Молчащий бот выглядит как сломанный,
     # и человек будет повторять фразу, думая что она не дошла.
-    known = {"complete": "закрытие задач",
-             "reschedule": "перенос",
-             "cancel": "отмена",
-             "pause": "паузы"}
-    if action in known:
-        return (f"Понял ({known[action]}), но это ещё не реализовано.\n"
-                f"Пока умею только записывать новые задачи.")
+    if action == "pause":
+        return ("Понял (паузы), но это ещё не реализовано.\n"
+                "Пока умею записывать, закрывать, переносить и отменять.")
 
     return f"Неизвестное действие: {action}"
 

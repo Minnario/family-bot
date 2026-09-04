@@ -398,6 +398,101 @@ def record_reminder(task_id: int, chat_id: int, message_id: int,
 
 
 # ------------------------------------------------------------------
+# Изменение состояния задач
+# ------------------------------------------------------------------
+
+def complete_task(task_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Закрывает задачу. Возвращает её или None, если такой нет
+    либо она уже закрыта.
+
+    Условие status = 'pending' в WHERE — защита от гонки: если два
+    человека нажмут «Сделано» одновременно, второй запрос вернёт
+    пустоту, и бот не отрапортует о закрытии дважды.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE tasks
+                   SET status = 'done', completed_at = NOW()
+                 WHERE id = %s AND status = 'pending'
+                RETURNING id, title, assignee, date, list
+            """, (task_id,))
+            return cur.fetchone()
+
+
+def reschedule_task(task_id: int, new_date: Optional[date],
+                    keep_time: bool = True) -> Optional[Dict[str, Any]]:
+    """
+    Переносит задачу на другую дату.
+
+    new_date = None означает «убрать дату» — задача уходит в отдельные
+    дела. Тогда list меняется на backlog, а time_mode на undated:
+    без даты время не имеет смысла, и CHECK-ограничение это не пропустит.
+
+    postponed_count увеличивается всегда. Это единственный способ
+    отличить «сдвинулось один раз» от «висит четвёртую неделю».
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            if new_date is None:
+                cur.execute("""
+                    UPDATE tasks
+                       SET date = NULL,
+                           list = 'backlog',
+                           time_mode = 'undated',
+                           time_start = NULL,
+                           time_end = NULL,
+                           daypart = NULL,
+                           postponed_count = postponed_count + 1
+                     WHERE id = %s AND status = 'pending'
+                    RETURNING id, title, assignee, date, postponed_count
+                """, (task_id,))
+            elif keep_time:
+                cur.execute("""
+                    UPDATE tasks
+                       SET date = %s,
+                           list = 'scheduled',
+                           postponed_count = postponed_count + 1
+                     WHERE id = %s AND status = 'pending'
+                    RETURNING id, title, assignee, date, time_start,
+                              daypart, postponed_count
+                """, (new_date, task_id))
+            else:
+                # Время сбрасывается, дата остаётся: «перенеси на среду»
+                # без указания часа — задача на весь день.
+                cur.execute("""
+                    UPDATE tasks
+                       SET date = %s,
+                           list = 'scheduled',
+                           time_mode = 'allday',
+                           time_start = NULL,
+                           time_end = NULL,
+                           daypart = NULL,
+                           postponed_count = postponed_count + 1
+                     WHERE id = %s AND status = 'pending'
+                    RETURNING id, title, assignee, date, postponed_count
+                """, (new_date, task_id))
+            return cur.fetchone()
+
+
+def cancel_task(task_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Отменяет задачу. Не удаляет: строка остаётся в истории со статусом
+    cancelled. Удаление стёрло бы факт, что дело вообще заводилось.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE tasks
+                   SET status = 'cancelled', completed_at = NOW()
+                 WHERE id = %s AND status = 'pending'
+                RETURNING id, title, assignee
+            """, (task_id,))
+            return cur.fetchone()
+
+
+# ------------------------------------------------------------------
 # Журнал сообщений
 # ------------------------------------------------------------------
 

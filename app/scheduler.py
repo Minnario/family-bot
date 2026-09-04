@@ -26,10 +26,9 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from db import (deadlines_soon, record_reminder, reminder_sent, tasks_backlog,
-                tasks_daily, tasks_daypart_now, tasks_due_now, tasks_for_date,
-                tasks_overdue)
-from handle import ASSIGNEE_RU, DAYPART_RU, WEEKDAYS_SHORT, _fmt_day
+from db import (record_reminder, reminder_sent, tasks_daypart_now,
+                tasks_due_now)
+from ui import DAYPART_RU, build_evening, build_morning, build_reminder, who
 from parser import TZ
 
 ROOT = Path(__file__).parent.parent
@@ -53,9 +52,6 @@ QUIET_TO = time(6, 0)
 # которая эти задачи и так показывает — второе сообщение было бы шумом.
 DAYPART_START = {"afternoon": time(12, 0), "evening": time(17, 0)}
 
-MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
-             "июля", "августа", "сентября", "октября", "ноября", "декабря"]
-
 
 def is_quiet(now: datetime) -> bool:
     """Ночное окно пересекает полночь, поэтому проверка через ИЛИ."""
@@ -63,23 +59,8 @@ def is_quiet(now: datetime) -> bool:
     return t >= QUIET_FROM or t < QUIET_TO
 
 
-def _who(task: Dict[str, Any]) -> str:
-    return ASSIGNEE_RU.get(task.get("assignee")) or "дом"
-
-
-def _time_label(task: Dict[str, Any]) -> str:
-    if task.get("time_start"):
-        s = task["time_start"].strftime("%H:%M")
-        if task.get("time_end"):
-            return f"{s}–{task['time_end'].strftime('%H:%M')}"
-        return s
-    if task.get("daypart"):
-        return DAYPART_RU.get(task["daypart"], "")
-    return ""
-
-
 # ------------------------------------------------------------------
-# Утренняя сводка
+# Сводки
 # ------------------------------------------------------------------
 
 async def morning_digest(bot, chat_id: int, now: Optional[datetime] = None) -> None:
@@ -90,93 +71,20 @@ async def morning_digest(bot, chat_id: int, now: Optional[datetime] = None) -> N
     отдельным сообщением, группу отключат в первую же неделю.
     """
     now = now or datetime.now(TZ)
-    today = now.date()
+    text, kb = build_morning(now.date())
+    await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
+    log.info("утренняя сводка отправлена")
 
-    today_tasks = tasks_for_date(today)
-    overdue = tasks_overdue(today)
-    deadlines = deadlines_soon(today, days=1)
-    daily = tasks_daily()
-
-    head = f"☀️ {WEEKDAYS_SHORT[today.weekday()]}, {today.day} {MONTHS_RU[today.month - 1]}"
-    lines = [head, ""]
-
-    if today_tasks:
-        for t in today_tasks:
-            tl = _time_label(t)
-            prefix = f"{tl:>7}  " if tl else " " * 9
-            lines.append(f"{prefix}{_who(t)} — {t['title']}")
-    else:
-        lines.append("На сегодня ничего не запланировано.")
-
-    if deadlines:
-        lines.append("")
-        for t in deadlines:
-            mark = "🔴 сегодня" if t["deadline"] == today else "⚡ завтра"
-            lines.append(f"{mark} дедлайн: {_who(t)} — {t['title']}")
-
-    if overdue:
-        lines.append("")
-        lines.append("🔴 Просрочено:")
-        for t in overdue:
-            lines.append(f"   {_who(t)} — {t['title']} (было {_fmt_day(t['date'].isoformat(), today)})")
-
-    if daily:
-        lines.append("")
-        lines.append("☑️ Ежедневно: " + " · ".join(
-            f"{_who(t)} {t['title']}" for t in daily))
-
-    await bot.send_message(chat_id, "\n".join(lines))
-    log.info("утренняя сводка отправлена: %d задач", len(today_tasks))
-
-
-# ------------------------------------------------------------------
-# Вечерняя сверка
-# ------------------------------------------------------------------
 
 async def evening_digest(bot, chat_id: int, now: Optional[datetime] = None) -> None:
     """
-    Что осталось незакрытым.
-
-    Пока только показывает. Вопрос «когда перенесём» появится вместе
-    с кнопками — городить временный текстовый диалог, который через
-    неделю выбросим, смысла нет.
+    Что осталось незакрытым. Кнопки те же, что в утренней сводке:
+    вечером можно закрыть или перенести прямо отсюда.
     """
     now = now or datetime.now(TZ)
-    today = now.date()
-
-    left = [t for t in tasks_for_date(today)]
-    backlog = tasks_backlog(today)
-    daily = tasks_daily()
-
-    lines = [f"🌙 Итоги дня, {today.day} {MONTHS_RU[today.month - 1]}", ""]
-
-    if left:
-        lines.append("Не отмечено сегодня:")
-        for t in left:
-            lines.append(f"   {_who(t)} — {t['title']}")
-    else:
-        lines.append("Всё на сегодня закрыто. ✅")
-
-    if daily:
-        lines.append("")
-        lines.append("Ежедневные: " + " · ".join(
-            f"{_who(t)} {t['title']}" for t in daily))
-
-    if backlog:
-        lines.append("")
-        lines.append("📌 Отдельные дела:")
-        for t in backlog:
-            row = f"   {_who(t)} — {t['title']}"
-            if t.get("deadline"):
-                row += f"  ⏳ до {_fmt_day(t['deadline'].isoformat(), today)}"
-            # Счётчик переносов виден с четвёртого раза: задача, которую
-            # двигают месяц, скорее всего не будет сделана никогда.
-            if (t.get("postponed_count") or 0) >= 4:
-                row += f"  ⚠️×{t['postponed_count']}"
-            lines.append(row)
-
-    await bot.send_message(chat_id, "\n".join(lines))
-    log.info("вечерняя сверка отправлена: %d незакрытых", len(left))
+    text, kb = build_evening(now.date())
+    await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
+    log.info("вечерняя сверка отправлена")
 
 
 # ------------------------------------------------------------------
@@ -203,10 +111,9 @@ async def timed_reminders(bot, chat_id: int, now: Optional[datetime] = None) -> 
                 datetime.combine(now.date(), now.time()))
         mins = max(0, int(left.total_seconds() // 60))
 
-        text = (f"⏰ через {mins} мин: {_who(t)} — {t['title']}"
-                f"  ({_time_label(t)})")
-
-        msg = await bot.send_message(chat_id, text)
+        text, kb = build_reminder(t, mins)
+        msg = await bot.send_message(chat_id, text, parse_mode="HTML",
+                                     reply_markup=kb)
         # Запись ПОСЛЕ успешной отправки: если сделать раньше и отправка
         # упадёт, напоминание потеряется молча.
         record_reminder(t["id"], chat_id, msg.message_id, "timed", now.date())
@@ -229,10 +136,16 @@ async def daypart_reminders(bot, chat_id: int, daypart_name: str,
     if not tasks:
         return 0
 
-    label = DAYPART_RU.get(daypart_name, daypart_name)
-    lines = [f"⏰ На {label}:"] + [f"   {_who(t)} — {t['title']}" for t in tasks]
+    from ui import task_buttons
+    from html import escape
 
-    msg = await bot.send_message(chat_id, "\n".join(lines))
+    label = DAYPART_RU.get(daypart_name, daypart_name)
+    lines = [f"⏰ На {label}:"] + [
+        f"  {who(t)} — {escape(t['title'])}" for t in tasks]
+
+    msg = await bot.send_message(chat_id, "\n".join(lines),
+                                 parse_mode="HTML",
+                                 reply_markup=task_buttons(tasks))
     for t in tasks:
         record_reminder(t["id"], chat_id, msg.message_id, "timed", now.date())
 

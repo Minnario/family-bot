@@ -15,18 +15,22 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ChatAction
-from telegram.ext import (Application, CommandHandler, ContextTypes,
-                          MessageHandler, filters)
+from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
+                          ContextTypes, MessageHandler, filters)
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from db import cancel_task, complete_task, reschedule_task
 from handle import handle_message
+from parser import TZ
 from scheduler import register_jobs
+from ui import build_evening, build_morning, postpone_options
 
 ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
@@ -127,6 +131,90 @@ async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ------------------------------------------------------------------
+# Нажатия на кнопки
+# ------------------------------------------------------------------
+
+async def _rerender(query, chat_id: int) -> None:
+    """
+    Перерисовывает сообщение, под которым нажали кнопку.
+
+    Вместо отправки нового «Готово!» правим исходное: закрытая задача
+    из него исчезает, кнопки обновляются. Чат остаётся читаемым, а
+    сводка всегда показывает актуальное состояние.
+
+    Какую сводку собрать, определяем по первому символу текста —
+    хранить это отдельно негде: callback_data привязан к кнопке,
+    а не к сообщению.
+    """
+    today = datetime.now(TZ).date()
+    head = (query.message.text or "")[:2]
+
+    if head.startswith("🌙"):
+        text, kb = build_evening(today)
+    elif head.startswith("☀"):
+        text, kb = build_morning(today)
+    else:
+        # Точечное напоминание или пинг на часть дня: задача закрыта,
+        # перерисовывать нечего — убираем кнопки и помечаем сообщение.
+        await query.edit_message_text(
+            (query.message.text_html or query.message.text) + "\n✅",
+            parse_mode="HTML")
+        return
+
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    data = query.data or ""
+    log.info("кнопка: chat=%s %r", query.message.chat_id, data)
+
+    try:
+        if data == "back":
+            # Возврат из меню переноса: восстанавливаем обычные кнопки
+            await _rerender(query, query.message.chat_id)
+            await query.answer()
+            return
+
+        action, _, rest = data.partition(":")
+
+        if action == "done":
+            task = await asyncio.to_thread(complete_task, int(rest))
+            await query.answer("Закрыто" if task else "Уже закрыто")
+            await _rerender(query, query.message.chat_id)
+
+        elif action == "post":
+            # Первый уровень: показываем варианты, текст не трогаем
+            await query.edit_message_reply_markup(
+                reply_markup=postpone_options(int(rest)))
+            await query.answer()
+
+        elif action == "pto":
+            tid, _, when = rest.partition(":")
+            if when == "x":
+                new_date = None      # убрать дату → отдельные дела
+            else:
+                new_date = datetime.now(TZ).date() + timedelta(days=int(when))
+            task = await asyncio.to_thread(reschedule_task, int(tid), new_date)
+            await query.answer("Перенесено" if task else "Задача не найдена")
+            await _rerender(query, query.message.chat_id)
+
+        elif action == "cancel":
+            task = await asyncio.to_thread(cancel_task, int(rest))
+            await query.answer("Отменено" if task else "Задача не найдена")
+            await _rerender(query, query.message.chat_id)
+
+        else:
+            await query.answer("Не понял кнопку")
+
+    except Exception:
+        log.exception("сбой обработки кнопки")
+        # answer() обязателен: без него у человека висит «часики» на кнопке
+        # до таймаута, и кажется, что бот завис.
+        await query.answer("Что-то сломалось")
+
+
+# ------------------------------------------------------------------
 
 def main() -> None:
     prod = "--prod" in sys.argv
@@ -160,6 +248,7 @@ def main() -> None:
     # ~filters.COMMAND — всё, что не команда. Иначе обработчик перехватит
     # и /start тоже, и парсер получит «/start» как текст задачи.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    app.add_handler(CallbackQueryHandler(on_callback))
     app.add_error_handler(on_error)
 
     log.info("слушаю сообщения, Ctrl+C для остановки")
