@@ -187,7 +187,20 @@ def get_task(task_id: int) -> Optional[Dict[str, Any]]:
 
 
 def tasks_for_date(day: date) -> List[Dict[str, Any]]:
-    """Задачи на конкретный день. Основа утренней сводки."""
+    """
+    Задачи на конкретный день. Основа утренней сводки и вечерней сверки.
+
+    Сортировка по «эффективному времени»: у задач с частью дня своего
+    времени нет, но в списке они должны стоять там, куда попадают по
+    смыслу. Простое NULLS LAST отправляло «утром прописи» в конец,
+    ниже задачи на 19:00 — читалось неправильно.
+
+    Числа ниже — только ключи сортировки, в саму задачу они не
+    записываются: «утром» так и остаётся «утром». Границы совпадают
+    с началом частей дня из промпта парсера.
+
+    allday (день есть, времени нет) остаётся в конце — там ему и место.
+    """
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -195,7 +208,15 @@ def tasks_for_date(day: date) -> List[Dict[str, Any]]:
                        time_start, time_end, daypart
                   FROM tasks
                  WHERE date = %s AND status = 'pending'
-                 ORDER BY time_start ASC NULLS LAST, id
+                 ORDER BY COALESCE(
+                              time_start,
+                              CASE daypart
+                                  WHEN 'morning'   THEN TIME '07:00'
+                                  WHEN 'afternoon' THEN TIME '12:00'
+                                  WHEN 'evening'   THEN TIME '17:00'
+                              END
+                          ) ASC NULLS LAST,
+                          id
             """, (day,))
             return cur.fetchall()
 
