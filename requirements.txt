@@ -1,0 +1,22 @@
+# Зависимости Family Assistant
+#
+# Только прямые: то, что импортируется в коде. Транзитивные (httpx,
+# pydantic, apscheduler и прочие) pip подтянет сам. Список из
+# `pip freeze` был бы длиннее и непонятнее — там всё вперемешку.
+#
+# Установка:
+#   pip3 install -r requirements.txt
+
+# Клиент Anthropic API — парсер фраз
+anthropic>=0.40
+
+# Драйвер PostgreSQL. [binary] ставит готовый бинарник вместо сборки
+# из исходников: на сервере иначе понадобятся компилятор и заголовки.
+psycopg[binary]>=3.2
+
+# Чтение .env
+python-dotenv>=1.0
+
+# Telegram. [job-queue] — планировщик, без него app.job_queue равен None
+# и расписание не запускается. Мы на этом уже спотыкались.
+python-telegram-bot[job-queue]>=22.0
