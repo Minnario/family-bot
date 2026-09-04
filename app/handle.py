@@ -11,6 +11,7 @@
 """
 
 import sys
+from collections import namedtuple
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -28,6 +29,11 @@ from ui import ASSIGNEE_RU, DAYPART_RU, WEEKDAYS_SHORT, day_label
 # Тестовый chat_id для запусков из командной строки.
 # У настоящих групп Telegram он отрицательный и приходит из апдейта.
 CLI_CHAT_ID = 0
+
+# Ответ обработчика: текст плюс варианты переспроса, если они есть.
+# Раньше возвращалась просто строка, но боту нужно знать, надо ли
+# рисовать кнопки — из текста это не вытащить.
+Reply = namedtuple("Reply", ["text", "options"])
 
 # ------------------------------------------------------------------
 # Форматирование подтверждения
@@ -121,7 +127,7 @@ def handle_message(text: str,
         result = parse(text, open_tasks, today)
     except ParseError as exc:
         log_message(chat_id, text, None, parse_ok=False, message_id=message_id)
-        return f"Не понял. Переформулируй, пожалуйста.\n({exc})"
+        return Reply(f"Не понял. Переформулируй, пожалуйста.\n({exc})", None)
 
     usage = result.pop("_usage", {})
     log_message(
@@ -143,13 +149,13 @@ def handle_message(text: str,
         c = result.get("clarification") or {}
         q = c.get("question", "Уточни, пожалуйста")
         opts = c.get("options") or []
-        return f"{q}\n" + "  ".join(f"[{o}]" for o in opts) if opts else q
+        return Reply(q, opts)
 
     # --- создание ---
     if action == "create":
         tasks = result.get("tasks") or []
         if not tasks:
-            return "Не понял, что записать. Переформулируй."
+            return Reply("Не понял, что записать. Переформулируй.", None)
 
         # Одна транзакция: если вторая задача не пройдёт проверки базы,
         # первая тоже откатится. Иначе человек получит подтверждение
@@ -157,27 +163,27 @@ def handle_message(text: str,
         try:
             ids = create_tasks(tasks)
         except Exception as exc:
-            return f"Не смог записать: {exc}"
+            return Reply(f"Не смог записать: {exc}", None)
 
         lines = [f"Принял: {format_task(t, today)}  #{i}"
                  for t, i in zip(tasks, ids)]
-        return "\n".join(lines)
+        return Reply("\n".join(lines), None)
 
     # --- закрытие ---
     if action == "complete":
         tid = result.get("task_id")
         if not tid:
-            return "Не понял, какую задачу закрыть. Назови её точнее."
+            return Reply("Не понял, какую задачу закрыть. Назови её точнее.", None)
         task = complete_task(tid)
         if not task:
-            return "Такой открытой задачи нет — возможно, уже закрыта."
-        return f"✅ Закрыл: {ASSIGNEE_RU.get(task['assignee']) or 'дом'} — {task['title']}"
+            return Reply("Такой открытой задачи нет — возможно, уже закрыта.", None)
+        return Reply(f"✅ Закрыл: {ASSIGNEE_RU.get(task['assignee']) or 'дом'} — {task['title']}", None)
 
     # --- перенос ---
     if action == "reschedule":
         tid = result.get("task_id")
         if not tid:
-            return "Не понял, что переносить. Назови задачу точнее."
+            return Reply("Не понял, что переносить. Назови задачу точнее.", None)
 
         new_date = result.get("new_date")
         keep_time = result.get("keep_time")
@@ -189,7 +195,7 @@ def handle_message(text: str,
         d = datetime.strptime(new_date, "%Y-%m-%d").date() if new_date else None
         task = reschedule_task(tid, d, keep_time)
         if not task:
-            return "Такой открытой задачи нет."
+            return Reply("Такой открытой задачи нет.", None)
 
         where = day_label(task["date"], today) if task["date"] else "отдельные дела"
         note = ""
@@ -198,26 +204,26 @@ def handle_message(text: str,
         if (task.get("postponed_count") or 0) >= 4:
             note = (f"\n⚠️ Переносится {task['postponed_count']}-й раз. "
                     f"Может, отменить?")
-        return f"⏰ Перенёс: {task['title']} → {where}{note}"
+        return Reply(f"⏰ Перенёс: {task['title']} → {where}{note}", None)
 
     # --- отмена ---
     if action == "cancel":
         tid = result.get("task_id")
         if not tid:
-            return "Не понял, что отменить."
+            return Reply("Не понял, что отменить.", None)
         task = cancel_task(tid)
         if not task:
-            return "Такой открытой задачи нет."
-        return f"🗑 Отменил: {task['title']}"
+            return Reply("Такой открытой задачи нет.", None)
+        return Reply(f"🗑 Отменил: {task['title']}", None)
 
     # --- пока не реализовано ---
     # Честный ответ вместо молчания. Молчащий бот выглядит как сломанный,
     # и человек будет повторять фразу, думая что она не дошла.
     if action == "pause":
-        return ("Понял (паузы), но это ещё не реализовано.\n"
-                "Пока умею записывать, закрывать, переносить и отменять.")
+        return Reply("Понял (паузы), но это ещё не реализовано.\n"
+                "Пока умею записывать, закрывать, переносить и отменять.", None)
 
-    return f"Неизвестное действие: {action}"
+    return Reply(f"Неизвестное действие: {action}", None)
 
 
 # ------------------------------------------------------------------
@@ -230,4 +236,4 @@ if __name__ == "__main__":
 
     phrase = " ".join(sys.argv[1:])
     print(f"> {phrase}\n")
-    print(handle_message(phrase))
+    print(handle_message(phrase).text)

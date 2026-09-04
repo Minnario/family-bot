@@ -86,18 +86,38 @@ def task_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]:
     """
     По ряду кнопок на задачу. Больше восьми задач — кнопок не будет:
     список станет длиннее самого сообщения и потеряет смысл.
+
+    Время в ярлыке обязательно. Без него два «Сева · теннис» на разное
+    время выглядят одинаково, и человек не знает, какую закрывает.
     """
     if not tasks or len(tasks) > 8:
         return None
     rows = []
     for t in tasks:
-        label = f"{who(t)} · {t['title']}"
-        if len(label) > 28:
-            label = label[:27] + "…"
+        tl = time_label(t)
+        label = f"{tl} {who(t)} · {t['title']}" if tl else f"{who(t)} · {t['title']}"
+        # Telegram обрезает длинные ярлыки по-своему, лучше сделать это
+        # самим — так видно, что текст сокращён.
+        if len(label) > 30:
+            label = label[:29] + "…"
         rows.append([
             InlineKeyboardButton(f"✅ {label}", callback_data=f"done:{t['id']}"),
             InlineKeyboardButton("⏰", callback_data=f"post:{t['id']}"),
         ])
+    return InlineKeyboardMarkup(rows)
+
+
+def clarify_buttons(options: List[str]) -> Optional[InlineKeyboardMarkup]:
+    """
+    Кнопки для переспроса. В callback_data идёт номер варианта, а не
+    его текст: варианты бывают длинными («Сева, понедельник 15:00»),
+    а поле ограничено 64 байтами, и кириллица занимает два байта
+    на символ. Сам текст хранится в памяти бота до нажатия.
+    """
+    if not options:
+        return None
+    rows = [[InlineKeyboardButton(o[:40], callback_data=f"cl:{i}")]
+            for i, o in enumerate(options[:6])]
     return InlineKeyboardMarkup(rows)
 
 

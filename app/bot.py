@@ -30,7 +30,8 @@ from db import cancel_task, complete_task, reschedule_task
 from handle import handle_message
 from parser import TZ
 from scheduler import register_jobs
-from ui import build_evening, build_morning, postpone_options
+from ui import (build_evening, build_morning, clarify_buttons,
+                postpone_options)
 
 ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
@@ -121,8 +122,20 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.reply_text("Что-то сломалось. Попробуй ещё раз.")
         return
 
-    log.info("ответ: %r", reply.replace("\n", " | "))
-    await msg.reply_text(reply)
+    log.info("ответ: %r", reply.text.replace("\n", " | "))
+
+    kb = clarify_buttons(reply.options) if reply.options else None
+    sent = await msg.reply_text(reply.text, reply_markup=kb)
+
+    # Варианты переспроса храним в памяти бота, привязав к отправленному
+    # сообщению: в callback_data влезает только номер варианта.
+    # Перезапуск бота их теряет — тогда на нажатие честно ответим,
+    # что уточнение устарело.
+    if reply.options:
+        ctx.bot_data.setdefault("clarify", {})[sent.message_id] = {
+            "original": text,
+            "options": reply.options,
+        }
 
 
 async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -177,6 +190,24 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
         action, _, rest = data.partition(":")
+
+        if action == "cl":
+            pending = ctx.bot_data.get("clarify", {}).pop(
+                query.message.message_id, None)
+            if not pending:
+                await query.answer("Уточнение устарело, повтори фразу")
+                await query.edit_message_reply_markup(reply_markup=None)
+                return
+            choice = pending["options"][int(rest)]
+            # Склеиваем исходную фразу с выбранным вариантом и прогоняем
+            # через тот же обработчик — отдельной ветки логики не нужно.
+            combined = f"{pending['original']} — {choice}"
+            await query.answer(choice[:60])
+            reply = await asyncio.to_thread(
+                handle_message, combined, query.message.chat_id)
+            await query.edit_message_text(f"{query.message.text}\n\n→ {choice}")
+            await ctx.bot.send_message(query.message.chat_id, reply.text)
+            return
 
         if action == "done":
             task = await asyncio.to_thread(complete_task, int(rest))
