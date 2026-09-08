@@ -641,6 +641,75 @@
           }
         ]
       }
+    },
+    {
+      "id": 29,
+      "input": "Саше пилатес в 9\nУточнение: 21:00",
+      "tests": "ответ на переспрос заменяет час, а не образует диапазон. Реальная ошибка бота 09.09.2026",
+      "expected": {
+        "action": "create",
+        "tasks": [
+          {
+            "title": "пилатес",
+            "assignee": "sasha",
+            "list": "scheduled",
+            "date": "2026-09-03",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "21:00",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": 30,
+      "input": "Сева матч 6.10\nУточнение: 18:10",
+      "tests": "уточнение выбрало время → дата 6 октября отбрасывается",
+      "expected": {
+        "action": "create",
+        "tasks": [
+          {
+            "title": "матч",
+            "assignee": "seva",
+            "list": "scheduled",
+            "date": "2026-09-03",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "18:10",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": 31,
+      "input": "Сева матч 6.10\nУточнение: 6 октября",
+      "tests": "уточнение выбрало дату → времени нет, allday",
+      "expected": {
+        "action": "create",
+        "tasks": [
+          {
+            "title": "матч",
+            "assignee": "seva",
+            "list": "scheduled",
+            "date": "2026-10-06",
+            "deadline": null,
+            "time_mode": "allday",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
+      }
     }
   ]
 }

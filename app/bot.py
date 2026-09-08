@@ -230,7 +230,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             if reply is None:
                 # Обычный случай: вариант уточняет исходную фразу
                 # («09:00» к «пилатес в 9»). Склеиваем и разбираем.
-                combined = f"{pending['original']} — {choice}"
+                # Формат с отдельной строкой «Уточнение:», а не через
+                # тире. Тире между числами парсер читал как диапазон:
+                # «пилатес в 9 — 21:00» превращалось в 09:00–21:00.
+                combined = f"{pending['original']}\nУточнение: {choice}"
                 reply = await asyncio.to_thread(
                     handle_message, combined, query.message.chat_id)
 
