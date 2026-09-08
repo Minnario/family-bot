@@ -108,8 +108,8 @@ def task_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]:
     return InlineKeyboardMarkup(rows)
 
 
-def week_buttons(tasks: List[Dict[str, Any]],
-                 today: date) -> Optional[InlineKeyboardMarkup]:
+def period_buttons(tasks: List[Dict[str, Any]],
+                   today: date) -> Optional[InlineKeyboardMarkup]:
     """
     То же, что task_buttons, но с днём в ярлыке.
 
@@ -123,12 +123,36 @@ def week_buttons(tasks: List[Dict[str, Any]],
     for t in tasks:
         parts = [day_label(t.get("date"), today), time_label(t),
                  f"{who(t)} · {t['title']}"]
-        label = " ".join(p for p in parts if p)
+        label = " ".join(x for x in parts if x)
         if len(label) > 30:
             label = label[:29] + "…"
         rows.append([
             InlineKeyboardButton(f"✅ {label}", callback_data=f"done:{t['id']}"),
             InlineKeyboardButton("⏰", callback_data=f"post:{t['id']}"),
+        ])
+    return InlineKeyboardMarkup(rows)
+
+
+def daily_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]:
+    """
+    Только отмена. Галочки для ежедневных нет намеренно.
+
+    complete_task() ставит статус done навсегда, а механизма ежедневного
+    сброса в проекте пока нет: одна строка в tasks служит и правилом,
+    и экземпляром. Галочка здесь означала бы «удалить привычку»,
+    а не «сделал сегодня» — до появления отметок по дням её быть не должно.
+
+    Переноса тоже нет: ежедневные не переносятся по решению из README.
+    """
+    if not tasks or len(tasks) > 8:
+        return None
+    rows = []
+    for t in tasks:
+        label = f"{who(t)} · {t['title']}"
+        if len(label) > 28:
+            label = label[:27] + "…"
+        rows.append([
+            InlineKeyboardButton(f"🗑 {label}", callback_data=f"cancel:{t['id']}")
         ])
     return InlineKeyboardMarkup(rows)
 
@@ -234,14 +258,16 @@ def build_evening(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     return "\n".join(lines), task_buttons(left)
 
 
-def build_week(today: date,
-               days: int = 7) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+def _build_period(today: date, days: int, icon: str, heading: str
+                  ) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     """
-    Неделя вперёд, сгруппированная по дням.
+    Общая вёрстка для сводок на неделю и на месяц. Различаются только
+    длиной отрезка и заголовком, поэтому тело одно: два почти одинаковых
+    цикла разъехались бы при первой же правке.
 
     Сознательно короче дневной сводки: только день, время, кто и что.
     Дедлайны, просроченное и ежедневные сюда не попадают — они
-    одинаковы каждый день, и семь повторов сделали бы сообщение
+    одинаковы каждый день, и тридцать повторов сделали бы сообщение
     нечитаемым. За ними идти в дневную сводку.
 
     Пустые дни пропускаются: строка «ЧТ 11.09 — ничего» занимает место
@@ -250,31 +276,56 @@ def build_week(today: date,
     last = today + timedelta(days=days - 1)
     tasks = tasks_for_range(today, last)
 
-    head = (f"📅 <b>Неделя: {today.day} {MONTHS_RU[today.month - 1]} — "
+    head = (f"{icon} <b>{heading}: {today.day} {MONTHS_RU[today.month - 1]} — "
             f"{last.day} {MONTHS_RU[last.month - 1]}</b>")
 
     if not tasks:
-        return f"{head}\n\nНа неделе ничего не запланировано.", None
+        return f"{head}\n\nНичего не запланировано.", None
 
     lines = [head]
     current: Optional[date] = None
     for t in tasks:
         if t["date"] != current:
             current = t["date"]
+            # Заголовок дня собирается здесь, а не через day_label():
+            # та для дальних дат уже включает число, и на месячной
+            # сводке получалось «ВТ 06.10 06.10».
+            delta = (current - today).days
+            dm = current.strftime("%d.%m")
+            if delta == 0:
+                label = f"сегодня {dm}"
+            elif delta == 1:
+                label = f"завтра {dm}"
+            else:
+                label = f"{WEEKDAYS_SHORT[current.weekday()]} {dm}"
             lines.append("")
-            lines.append(f"<b>{day_label(current, today)} "
-                         f"{current.strftime('%d.%m')}</b>")
+            lines.append(f"<b>{label}</b>")
         lines.append(f"  {task_line(t)}")
 
-    return "\n".join(lines), week_buttons(tasks, today)
+    return "\n".join(lines), period_buttons(tasks, today)
+
+
+def build_week(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """Неделя вперёд, сгруппированная по дням."""
+    return _build_period(today, 7, "📅", "Неделя")
+
+
+def build_month(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """
+    Месяц вперёд. Значок отличается от недельного намеренно: bot.py
+    определяет по нему, какую сводку перерисовать после нажатия кнопки.
+    Одинаковые значки означали бы, что месяц после галочки схлопнется
+    в неделю.
+    """
+    return _build_period(today, 30, "🗓", "Месяц")
 
 
 def build_backlog(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     """
     Отдельные дела — те, у которых нет даты.
 
-    В дневную и недельную сводки они не попадают по определению,
-    поэтому до сих пор их было видно только вечером в 21:00.
+    В сводки по дням они не попадают по определению, поэтому до сих пор
+    их было видно только вечером в 21:00.
     """
     backlog = tasks_backlog(today)
 
@@ -291,6 +342,27 @@ def build_backlog(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
         lines.append(row)
 
     return "\n".join(lines), task_buttons(backlog)
+
+
+def build_daily() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """
+    Ежедневные дела. Кнопка одна — убрать привычку, когда стала не нужна.
+
+    Аргумент today не нужен: у ежедневных нет даты.
+    """
+    daily = tasks_daily()
+
+    if not daily:
+        return ("🔁 <b>Ежедневные дела</b>\n\nПусто.\n"
+                "Чтобы завести, напиши «Севе читать 20 минут каждый день».",
+                None)
+
+    lines = ["🔁 <b>Ежедневные дела</b>", ""]
+    lines += [f"  {who(t)} — {escape(t['title'])}" for t in daily]
+    lines.append("")
+    lines.append("<i>Кнопка убирает дело насовсем.</i>")
+
+    return "\n".join(lines), daily_buttons(daily)
 
 
 def build_reminder(task: Dict[str, Any], minutes: int

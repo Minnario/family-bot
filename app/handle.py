@@ -25,7 +25,8 @@ from parser import ParseError, parse, TZ
 # и сводки. Держать имена членов семьи в двух файлах — гарантия того,
 # что однажды они разъедутся.
 from ui import (ASSIGNEE_RU, DAYPART_RU, WEEKDAYS_SHORT, day_label,
-                build_backlog, build_morning, build_week)
+                build_backlog, build_daily, build_month, build_morning,
+                build_week)
 
 # Тестовый chat_id для запусков из командной строки.
 # У настоящих групп Telegram он отрицательный и приходит из апдейта.
@@ -135,10 +136,18 @@ COMMANDS = {
     "сводка за неделю":   "week",
     "план на неделю":     "week",
     "что на неделе":      "week",
+    # месяц
+    "сводка на месяц":    "month",
+    "сводка за месяц":    "month",
+    "план на месяц":      "month",
     # дела без даты
     "список дел":         "backlog",
     "отдельные дела":     "backlog",
     "что висит":          "backlog",
+    # ежедневные
+    "ежедневные":         "daily",
+    "ежедневные дела":    "daily",
+    "привычки":           "daily",
 }
 
 
@@ -157,8 +166,12 @@ def _run_command(kind: str, today: date) -> Reply:
     """Собирает нужную сводку. Текст и кнопки уже готовы в ui.py."""
     if kind == "week":
         text, kb = build_week(today)
+    elif kind == "month":
+        text, kb = build_month(today)
     elif kind == "backlog":
         text, kb = build_backlog(today)
+    elif kind == "daily":
+        text, kb = build_daily()
     else:
         text, kb = build_morning(today)
     return Reply(text, None, kb, True)

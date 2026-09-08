@@ -30,8 +30,8 @@ from db import cancel_task, complete_task, reschedule_task
 from handle import handle_message
 from parser import TZ
 from scheduler import register_jobs
-from ui import (build_backlog, build_evening, build_morning, build_week,
-                clarify_buttons, postpone_options)
+from ui import (build_backlog, build_daily, build_evening, build_month,
+                build_morning, build_week, clarify_buttons, postpone_options)
 
 ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
@@ -61,7 +61,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "Посмотреть, что записано:\n"
         "  Сводка на день\n"
         "  Сводка на неделю\n"
-        "  Список дел\n\n"
+        "  Сводка на месяц\n"
+        "  Список дел\n"
+        "  Ежедневные\n\n"
         "/chatid — номер этого чата"
     )
 
@@ -178,8 +180,12 @@ async def _rerender(query, chat_id: int) -> None:
         text, kb = build_morning(today)
     elif head.startswith("📅"):
         text, kb = build_week(today)
+    elif head.startswith("🗓"):
+        text, kb = build_month(today)
     elif head.startswith("📌"):
         text, kb = build_backlog(today)
+    elif head.startswith("🔁"):
+        text, kb = build_daily()
     else:
         # Точечное напоминание или пинг на часть дня: задача закрыта,
         # перерисовывать нечего — убираем кнопки и помечаем сообщение.
