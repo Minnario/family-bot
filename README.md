@@ -111,3 +111,45 @@ Haiku 4.5, `temperature=0`: 22/22 на eval-датасете, три прого�
 - шаблоны недели и раскатка по воскресеньям
 - паузы (таблица есть, интерфейса нет)
 - еженедельный разбор паттернов по истории
+
+
+## Работа с сервером
+
+Сервер: Oracle Cloud, Oracle Linux 9, пользователь `opc`.
+Бот работает как systemd-служба `familybot`, автозапуск включён.
+
+```bash
+ssh opc@158.178.213.121
+
+systemctl status familybot         # состояние службы
+sudo systemctl restart familybot   # перезапуск после git pull
+sudo systemctl stop familybot      # остановить
+journalctl -u familybot -f         # логи в реальном времени, выход Ctrl+C
+```
+
+Юнит: `/etc/systemd/system/familybot.service`
+После правки юнита — `sudo systemctl daemon-reload`, затем `restart`.
+
+### Базы на сервере
+
+| База | Назначение |
+|---|---|
+| `familybot` | боевая, с ней работает служба |
+| `familybot_dev` | пустая, для экспериментов |
+
+Переключение — правка `DATABASE_URL` в `.env` и перезапуск службы.
+
+### Грабли
+
+**`localhost` в `DATABASE_URL` не работает.** libpq трактует его как TCP-подключение,
+а `pg_hba.conf` в Oracle Linux требует для TCP ident-аутентификацию, которой на сервере нет.
+Правильно: `postgresql:///familybot` — пустой хост означает Unix-сокет и метод peer.
+
+**SSH рвётся на долгих операциях.** В `~/.ssh/config` на Mac:
+
+    Host 158.178.213.121
+        ServerAliveInterval 60
+
+Директивы `ServerAliveExitOnFailure` не существует — ssh откажется читать весь конфиг.
+
+**Права на конфиги.** `.env` и `~/.ssh/config` должны быть `chmod 600`, иначе ssh игнорирует конфиг, а ключи доступны на чтение другим пользователям.
