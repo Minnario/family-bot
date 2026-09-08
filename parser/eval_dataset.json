@@ -9,13 +9,21 @@
       "tests": "явное 'дня' + имя названо прямо",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "тренировка с болл машиной",
-          "assignee": "vova", "list": "scheduled",
-          "date": "2026-09-03", "deadline": null,
-          "time_mode": "exact", "time_start": "14:00", "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "тренировка с болл машиной",
+            "assignee": "vova",
+            "list": "scheduled",
+            "date": "2026-09-03",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "14:00",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -24,13 +32,21 @@
       "tests": "имя есть, срока нет → backlog",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "учить стих на украинском",
-          "assignee": "seva", "list": "backlog",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "учить стих на украинском",
+            "assignee": "seva",
+            "list": "backlog",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -39,13 +55,21 @@
       "tests": "'на этой неделе' → backlog, НЕ конкретный день",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "поменять резину на машине",
-          "assignee": null, "list": "backlog",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "поменять резину на машине",
+            "assignee": null,
+            "list": "backlog",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -54,13 +78,21 @@
       "tests": "ДЕДЛАЙН, а не дата. Главный тест на различение",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "домашку по роблокс",
-          "assignee": "seva", "list": "backlog",
-          "date": null, "deadline": "2026-09-05",
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "домашку по роблокс",
+            "assignee": "seva",
+            "list": "backlog",
+            "date": null,
+            "deadline": "2026-09-05",
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -69,13 +101,21 @@
       "tests": "6:30 с двоеточием → 18:30. Ключевой тест",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "тренировка по футболу",
-          "assignee": "gleb", "list": "scheduled",
-          "date": "2026-09-09", "deadline": null,
-          "time_mode": "exact", "time_start": "18:30", "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "тренировка по футболу",
+            "assignee": "gleb",
+            "list": "scheduled",
+            "date": "2026-09-09",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "18:30",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -84,13 +124,21 @@
       "tests": "незнакомое слово 'гелик' не должно ломать разбор",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "тренировка по гелику",
-          "assignee": "seva", "list": "scheduled",
-          "date": "2026-09-08", "deadline": null,
-          "time_mode": "exact", "time_start": "18:30", "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "тренировка по гелику",
+            "assignee": "seva",
+            "list": "scheduled",
+            "date": "2026-09-08",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "18:30",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -99,13 +147,21 @@
       "tests": "'7 часов' → 19:00; четверг названный в четверг = +7 дней",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "тренировка по сокеру",
-          "assignee": "seva", "list": "scheduled",
-          "date": "2026-09-10", "deadline": null,
-          "time_mode": "exact", "time_start": "19:00", "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "тренировка по сокеру",
+            "assignee": "seva",
+            "list": "scheduled",
+            "date": "2026-09-10",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "19:00",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -114,13 +170,21 @@
       "tests": "'после работы' — шум, должен отбрасываться",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "тренировка по теннису",
-          "assignee": "vova", "list": "scheduled",
-          "date": "2026-09-04", "deadline": null,
-          "time_mode": "exact", "time_start": "15:00", "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "тренировка по теннису",
+            "assignee": "vova",
+            "list": "scheduled",
+            "date": "2026-09-04",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "15:00",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -129,13 +193,21 @@
       "tests": "нет имени → assignee null (не угадывать Вову)",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "поездка к Антону, перетяжка ракеток",
-          "assignee": null, "list": "backlog",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "поездка к Антону, перетяжка ракеток",
+            "assignee": null,
+            "list": "backlog",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -144,13 +216,21 @@
       "tests": "'2 часа' = объём, НЕ время старта; 'учу' без имени → null",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "AI Engineering",
-          "assignee": null, "list": "daily",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": true, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "AI Engineering",
+            "assignee": null,
+            "list": "daily",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": true,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -159,13 +239,21 @@
       "tests": "daypart без даты → сегодня",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "тренировка на велотренажере",
-          "assignee": "sasha", "list": "scheduled",
-          "date": "2026-09-03", "deadline": null,
-          "time_mode": "daypart", "time_start": null, "time_end": null,
-          "daypart": "evening", "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "тренировка на велотренажере",
+            "assignee": "sasha",
+            "list": "scheduled",
+            "date": "2026-09-03",
+            "deadline": null,
+            "time_mode": "daypart",
+            "time_start": null,
+            "time_end": null,
+            "daypart": "evening",
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -174,13 +262,21 @@
       "tests": "минимальная фраза: имя + слово",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "аппликация",
-          "assignee": "kamilla", "list": "backlog",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "аппликация",
+            "assignee": "kamilla",
+            "list": "backlog",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -191,16 +287,30 @@
         "action": "create",
         "tasks": [
           {
-            "title": "пилатес", "assignee": "sasha", "list": "scheduled",
-            "date": "2026-09-03", "deadline": null,
-            "time_mode": "daypart", "time_start": null, "time_end": null,
-            "daypart": "morning", "recurring": false, "reminder_lead": 10
+            "title": "пилатес",
+            "assignee": "sasha",
+            "list": "scheduled",
+            "date": "2026-09-03",
+            "deadline": null,
+            "time_mode": "daypart",
+            "time_start": null,
+            "time_end": null,
+            "daypart": "morning",
+            "recurring": false,
+            "reminder_lead": 10
           },
           {
-            "title": "пилатес", "assignee": "vova", "list": "scheduled",
-            "date": "2026-09-03", "deadline": null,
-            "time_mode": "daypart", "time_start": null, "time_end": null,
-            "daypart": "morning", "recurring": false, "reminder_lead": 10
+            "title": "пилатес",
+            "assignee": "vova",
+            "list": "scheduled",
+            "date": "2026-09-03",
+            "deadline": null,
+            "time_mode": "daypart",
+            "time_start": null,
+            "time_end": null,
+            "daypart": "morning",
+            "recurring": false,
+            "reminder_lead": 10
           }
         ]
       }
@@ -211,13 +321,21 @@
       "tests": "день недели + часть суток вместе",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "почитать на английском",
-          "assignee": "seva", "list": "scheduled",
-          "date": "2026-09-09", "deadline": null,
-          "time_mode": "daypart", "time_start": null, "time_end": null,
-          "daypart": "evening", "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "почитать на английском",
+            "assignee": "seva",
+            "list": "scheduled",
+            "date": "2026-09-09",
+            "deadline": null,
+            "time_mode": "daypart",
+            "time_start": null,
+            "time_end": null,
+            "daypart": "evening",
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -226,13 +344,21 @@
       "tests": "обратный порядок: задача перед именем",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "прописи",
-          "assignee": "kamilla", "list": "backlog",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "прописи",
+            "assignee": "kamilla",
+            "list": "backlog",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -241,13 +367,21 @@
       "tests": "интервал в 24-часовом формате",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "тренировка",
-          "assignee": "gleb", "list": "scheduled",
-          "date": "2026-09-09", "deadline": null,
-          "time_mode": "range", "time_start": "18:30", "time_end": "19:15",
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "тренировка",
+            "assignee": "gleb",
+            "list": "scheduled",
+            "date": "2026-09-09",
+            "deadline": null,
+            "time_mode": "range",
+            "time_start": "18:30",
+            "time_end": "19:15",
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -256,13 +390,21 @@
       "tests": "дело дома без имени",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "форму школы заполнить",
-          "assignee": null, "list": "backlog",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "форму школы заполнить",
+            "assignee": null,
+            "list": "backlog",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -271,13 +413,21 @@
       "tests": "дело дома без имени",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "заплатить взнос в школу",
-          "assignee": null, "list": "backlog",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "заплатить взнос в школу",
+            "assignee": null,
+            "list": "backlog",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -286,13 +436,21 @@
       "tests": "дело дома без имени",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "подстричь газон",
-          "assignee": null, "list": "backlog",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "подстричь газон",
+            "assignee": null,
+            "list": "backlog",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -301,13 +459,21 @@
       "tests": "'учим' — мы, но задача Камиллы",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "учим буквы",
-          "assignee": "kamilla", "list": "backlog",
-          "date": null, "deadline": null,
-          "time_mode": "undated", "time_start": null, "time_end": null,
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "учим буквы",
+            "assignee": "kamilla",
+            "list": "backlog",
+            "date": null,
+            "deadline": null,
+            "time_mode": "undated",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     },
     {
@@ -315,7 +481,13 @@
       "input": "Чтение для Севы на украинском переносим на завтра время то же",
       "tests": "action=reschedule, поиск в открытых задачах, время сохраняется",
       "open_tasks_context": [
-        {"task_id": 42, "title": "чтение на украинском", "assignee": "seva", "date": "2026-09-03", "time_start": "17:00"}
+        {
+          "task_id": 42,
+          "title": "чтение на украинском",
+          "assignee": "seva",
+          "date": "2026-09-03",
+          "time_start": "17:00"
+        }
       ],
       "expected": {
         "action": "reschedule",
@@ -330,13 +502,144 @@
       "tests": "интервал в 12-часовом формате → 15:00-16:00; место внутри title",
       "expected": {
         "action": "create",
-        "tasks": [{
-          "title": "тренировка по теннису в Веспорте",
-          "assignee": "seva", "list": "scheduled",
-          "date": "2026-09-03", "deadline": null,
-          "time_mode": "range", "time_start": "15:00", "time_end": "16:00",
-          "daypart": null, "recurring": false, "reminder_lead": 10
-        }]
+        "tasks": [
+          {
+            "title": "тренировка по теннису в Веспорте",
+            "assignee": "seva",
+            "list": "scheduled",
+            "date": "2026-09-03",
+            "deadline": null,
+            "time_mode": "range",
+            "time_start": "15:00",
+            "time_end": "16:00",
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": 23,
+      "input": "Сева матч в Четверг сокер в партри 6.10",
+      "tests": "точка БЕЗ предлога 'в' → время 18:10, не дата 6 октября. Реальная ошибка бота 08.09.2026; вариант 'в 6.10' работал верно",
+      "expected": {
+        "action": "create",
+        "tasks": [
+          {
+            "title": "матч сокер в партри",
+            "assignee": "seva",
+            "list": "scheduled",
+            "date": "2026-09-10",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "18:10",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": 24,
+      "input": "Камилле бассейн завтра в 14.20",
+      "tests": "точка при однозначном часе → без сдвига на 12",
+      "expected": {
+        "action": "create",
+        "tasks": [
+          {
+            "title": "бассейн",
+            "assignee": "kamilla",
+            "list": "scheduled",
+            "date": "2026-09-04",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "14:20",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": 25,
+      "input": "Сева матч 6.10",
+      "tests": "точка, дня нет, обе трактовки возможны → переспрос (шаг 3)",
+      "expected": {
+        "action": "clarify"
+      }
+    },
+    {
+      "id": 26,
+      "input": "Севе тренировка 25.09",
+      "tests": "точка, часа 25 не бывает → дата (шаг 2)",
+      "expected": {
+        "action": "create",
+        "tasks": [
+          {
+            "title": "тренировка",
+            "assignee": "seva",
+            "list": "scheduled",
+            "date": "2026-09-25",
+            "deadline": null,
+            "time_mode": "allday",
+            "time_start": null,
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": 27,
+      "input": "Камилле бассейн 15 сентября в 4",
+      "tests": "дата словами + час 1-7 → 16:00",
+      "expected": {
+        "action": "create",
+        "tasks": [
+          {
+            "title": "бассейн",
+            "assignee": "kamilla",
+            "list": "scheduled",
+            "date": "2026-09-15",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "16:00",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": 28,
+      "input": "Севе плавание 3.45",
+      "tests": "точка, месяца 45 не бывает → время, дня нет → сегодня",
+      "expected": {
+        "action": "create",
+        "tasks": [
+          {
+            "title": "плавание",
+            "assignee": "seva",
+            "list": "scheduled",
+            "date": "2026-09-03",
+            "deadline": null,
+            "time_mode": "exact",
+            "time_start": "15:45",
+            "time_end": null,
+            "daypart": null,
+            "recurring": false,
+            "reminder_lead": 10
+          }
+        ]
       }
     }
   ]
