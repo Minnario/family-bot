@@ -221,6 +221,38 @@ def tasks_for_date(day: date) -> List[Dict[str, Any]]:
             return cur.fetchall()
 
 
+def tasks_for_range(start: date, end: date) -> List[Dict[str, Any]]:
+    """
+    Задачи за отрезок дней, включая обе границы. Основа недельной сводки.
+
+    Сортировка та же, что в tasks_for_date, плюс дата первым ключом:
+    внутри дня порядок должен совпадать с дневной сводкой, иначе одна
+    и та же среда выглядит по-разному в двух местах.
+
+    Колонка date здесь в выборке нужна — вёрстка группирует по дням.
+    В tasks_for_date её нет, потому что там день и так известен.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, title, assignee, date, time_mode,
+                       time_start, time_end, daypart
+                  FROM tasks
+                 WHERE date BETWEEN %s AND %s AND status = 'pending'
+                 ORDER BY date ASC,
+                          COALESCE(
+                              time_start,
+                              CASE daypart
+                                  WHEN 'morning'   THEN TIME '07:00'
+                                  WHEN 'afternoon' THEN TIME '12:00'
+                                  WHEN 'evening'   THEN TIME '17:00'
+                              END
+                          ) ASC NULLS LAST,
+                          id
+            """, (start, end))
+            return cur.fetchall()
+
+
 # ------------------------------------------------------------------
 # Запросы планировщика
 # ------------------------------------------------------------------

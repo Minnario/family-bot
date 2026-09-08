@@ -30,8 +30,8 @@ from db import cancel_task, complete_task, reschedule_task
 from handle import handle_message
 from parser import TZ
 from scheduler import register_jobs
-from ui import (build_evening, build_morning, clarify_buttons,
-                postpone_options)
+from ui import (build_backlog, build_evening, build_morning, build_week,
+                clarify_buttons, postpone_options)
 
 ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
@@ -58,6 +58,10 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "  Севе теннис во вторник в 3\n"
         "  утром пилатес\n"
         "  надо газон подстричь\n\n"
+        "Посмотреть, что записано:\n"
+        "  Сводка на день\n"
+        "  Сводка на неделю\n"
+        "  Список дел\n\n"
         "/chatid — номер этого чата"
     )
 
@@ -124,8 +128,14 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     log.info("ответ: %r", reply.text.replace("\n", " | "))
 
-    kb = clarify_buttons(reply.options) if reply.options else None
-    sent = await msg.reply_text(reply.text, reply_markup=kb)
+    # Сводки приходят с уже собранной разметкой и HTML внутри текста.
+    # Обычные ответы — с options (или без) и без разметки: там текст
+    # задачи не экранирован, и parse_mode="HTML" сломал бы отправку
+    # на первом же символе < в названии.
+    kb = reply.markup or (clarify_buttons(reply.options)
+                          if reply.options else None)
+    sent = await msg.reply_text(reply.text, reply_markup=kb,
+                                parse_mode="HTML" if reply.html else None)
 
     # Варианты переспроса храним в памяти бота, привязав к отправленному
     # сообщению: в callback_data влезает только номер варианта.
@@ -166,6 +176,10 @@ async def _rerender(query, chat_id: int) -> None:
         text, kb = build_evening(today)
     elif head.startswith("☀"):
         text, kb = build_morning(today)
+    elif head.startswith("📅"):
+        text, kb = build_week(today)
+    elif head.startswith("📌"):
+        text, kb = build_backlog(today)
     else:
         # Точечное напоминание или пинг на часть дня: задача закрыта,
         # перерисовывать нечего — убираем кнопки и помечаем сообщение.

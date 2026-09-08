@@ -22,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from db import tasks_backlog, tasks_daily, tasks_for_date, tasks_overdue, deadlines_soon
+from db import (tasks_backlog, tasks_daily, tasks_for_date, tasks_for_range,
+                tasks_overdue, deadlines_soon)
 
 ASSIGNEE_RU = {
     "seva": "Сева", "gleb": "Глеб", "kamilla": "Камилла",
@@ -98,6 +99,31 @@ def task_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]:
         label = f"{tl} {who(t)} · {t['title']}" if tl else f"{who(t)} · {t['title']}"
         # Telegram обрезает длинные ярлыки по-своему, лучше сделать это
         # самим — так видно, что текст сокращён.
+        if len(label) > 30:
+            label = label[:29] + "…"
+        rows.append([
+            InlineKeyboardButton(f"✅ {label}", callback_data=f"done:{t['id']}"),
+            InlineKeyboardButton("⏰", callback_data=f"post:{t['id']}"),
+        ])
+    return InlineKeyboardMarkup(rows)
+
+
+def week_buttons(tasks: List[Dict[str, Any]],
+                 today: date) -> Optional[InlineKeyboardMarkup]:
+    """
+    То же, что task_buttons, но с днём в ярлыке.
+
+    Без дня «Сева · теннис» во вторник и в четверг выглядят одинаково,
+    и человек закроет не ту. В дневной сводке этой проблемы нет — там
+    день один на всё сообщение.
+    """
+    if not tasks or len(tasks) > 8:
+        return None
+    rows = []
+    for t in tasks:
+        parts = [day_label(t.get("date"), today), time_label(t),
+                 f"{who(t)} · {t['title']}"]
+        label = " ".join(p for p in parts if p)
         if len(label) > 30:
             label = label[:29] + "…"
         rows.append([
@@ -206,6 +232,65 @@ def build_evening(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
             lines.append(row)
 
     return "\n".join(lines), task_buttons(left)
+
+
+def build_week(today: date,
+               days: int = 7) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """
+    Неделя вперёд, сгруппированная по дням.
+
+    Сознательно короче дневной сводки: только день, время, кто и что.
+    Дедлайны, просроченное и ежедневные сюда не попадают — они
+    одинаковы каждый день, и семь повторов сделали бы сообщение
+    нечитаемым. За ними идти в дневную сводку.
+
+    Пустые дни пропускаются: строка «ЧТ 11.09 — ничего» занимает место
+    и ничего не сообщает.
+    """
+    last = today + timedelta(days=days - 1)
+    tasks = tasks_for_range(today, last)
+
+    head = (f"📅 <b>Неделя: {today.day} {MONTHS_RU[today.month - 1]} — "
+            f"{last.day} {MONTHS_RU[last.month - 1]}</b>")
+
+    if not tasks:
+        return f"{head}\n\nНа неделе ничего не запланировано.", None
+
+    lines = [head]
+    current: Optional[date] = None
+    for t in tasks:
+        if t["date"] != current:
+            current = t["date"]
+            lines.append("")
+            lines.append(f"<b>{day_label(current, today)} "
+                         f"{current.strftime('%d.%m')}</b>")
+        lines.append(f"  {task_line(t)}")
+
+    return "\n".join(lines), week_buttons(tasks, today)
+
+
+def build_backlog(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """
+    Отдельные дела — те, у которых нет даты.
+
+    В дневную и недельную сводки они не попадают по определению,
+    поэтому до сих пор их было видно только вечером в 21:00.
+    """
+    backlog = tasks_backlog(today)
+
+    if not backlog:
+        return "📌 <b>Отдельные дела</b>\n\nПусто.", None
+
+    lines = ["📌 <b>Отдельные дела</b>", ""]
+    for t in backlog:
+        row = f"  {who(t)} — {escape(t['title'])}"
+        if t.get("deadline"):
+            row += f"  ⏳ до {day_label(t['deadline'], today)}"
+        if (t.get("postponed_count") or 0) >= 4:
+            row += f"  ⚠️×{t['postponed_count']}"
+        lines.append(row)
+
+    return "\n".join(lines), task_buttons(backlog)
 
 
 def build_reminder(task: Dict[str, Any], minutes: int
