@@ -27,7 +27,7 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
 sys.path.insert(0, str(Path(__file__).parent))
 
 from db import cancel_task, complete_task, reschedule_task
-from handle import handle_message
+from handle import handle_message, try_command
 from parser import TZ
 from scheduler import register_jobs
 from ui import (build_backlog, build_daily, build_evening, build_month,
@@ -219,14 +219,26 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 await query.edit_message_reply_markup(reply_markup=None)
                 return
             choice = pending["options"][int(rest)]
-            # Склеиваем исходную фразу с выбранным вариантом и прогоняем
-            # через тот же обработчик — отдельной ветки логики не нужно.
-            combined = f"{pending['original']} — {choice}"
             await query.answer(choice[:60])
-            reply = await asyncio.to_thread(
-                handle_message, combined, query.message.chat_id)
+
+            # Сначала проверяем вариант по таблице команд. «Посмотреть
+            # список дел» — это запрос на чтение, и склеивать его
+            # с исходной фразой нельзя: парсер снова не поймёт и снова
+            # предложит тот же переспрос.
+            reply = await asyncio.to_thread(try_command, choice)
+
+            if reply is None:
+                # Обычный случай: вариант уточняет исходную фразу
+                # («09:00» к «пилатес в 9»). Склеиваем и разбираем.
+                combined = f"{pending['original']} — {choice}"
+                reply = await asyncio.to_thread(
+                    handle_message, combined, query.message.chat_id)
+
             await query.edit_message_text(f"{query.message.text}\n\n→ {choice}")
-            await ctx.bot.send_message(query.message.chat_id, reply.text)
+            await ctx.bot.send_message(
+                query.message.chat_id, reply.text,
+                reply_markup=reply.markup,
+                parse_mode="HTML" if reply.html else None)
             return
 
         if action == "done":

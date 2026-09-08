@@ -151,6 +151,13 @@ COMMANDS = {
 }
 
 
+# Глаголы, с которых начинаются варианты переспроса от модели:
+# «Посмотреть список дел», «Показать ежедневные». Отбрасываем их перед
+# сравнением, иначе кнопка переспроса не совпадёт ни с одной командой,
+# уйдёт обратно в парсер и вызовет второй такой же переспрос.
+LEAD_VERBS = ("посмотреть ", "показать ", "покажи ", "посмотри ", "открыть ")
+
+
 def _normalize(text: str) -> str:
     """
     Приведение к виду, в котором строка сравнивается с таблицей.
@@ -158,8 +165,26 @@ def _normalize(text: str) -> str:
     Регистр не важен, лишние пробелы не важны, точка или знак вопроса
     в конце не важны. «Сводка на неделю?» — та же команда.
     """
-    cleaned = " ".join(text.lower().split())
-    return cleaned.rstrip(".!?…")
+    cleaned = " ".join(text.lower().split()).rstrip(".!?…")
+    for verb in LEAD_VERBS:
+        if cleaned.startswith(verb):
+            return cleaned[len(verb):]
+    return cleaned
+
+
+def try_command(text: str) -> Optional[Reply]:
+    """
+    Готовый ответ, если текст — фиксированная команда. Иначе None.
+
+    Отдельно от handle_message, потому что нужна боту: когда человек
+    нажимает вариант переспроса, вариант надо сначала проверить по
+    таблице команд. Иначе «Посмотреть список дел» склеивается с
+    исходной фразой, снова идёт в парсер и снова возвращает переспрос.
+    """
+    kind = COMMANDS.get(_normalize(text))
+    if not kind:
+        return None
+    return _run_command(kind, datetime.now(TZ).date())
 
 
 def _run_command(kind: str, today: date) -> Reply:
@@ -196,9 +221,9 @@ def handle_message(text: str,
     # Команды чтения — до парсера и до запроса открытых задач.
     # В message_log не пишем: журнал существует ради разбора ошибок
     # парсера, а здесь парсер не участвует.
-    command = COMMANDS.get(_normalize(text))
+    command = try_command(text)
     if command:
-        return _run_command(command, today)
+        return command
 
     open_tasks = list_open_tasks()
 
