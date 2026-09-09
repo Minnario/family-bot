@@ -30,8 +30,9 @@ from db import cancel_task, complete_task, reschedule_task
 from handle import handle_message, try_command
 from parser import TZ
 from scheduler import register_jobs
-from ui import (build_backlog, build_daily, build_evening, build_month,
-                build_morning, build_week, clarify_buttons, postpone_options)
+from ui import (build_backlog, build_daily, build_evening, build_help,
+                build_month, build_morning, build_week, clarify_buttons,
+                postpone_options)
 
 ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
@@ -52,20 +53,12 @@ log = logging.getLogger("familybot")
 # ------------------------------------------------------------------
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "Записываю семейные дела.\n\n"
-        "Просто напиши, что нужно сделать:\n"
-        "  Севе теннис во вторник в 3\n"
-        "  утром пилатес\n"
-        "  надо газон подстричь\n\n"
-        "Посмотреть, что записано:\n"
-        "  Сводка на день\n"
-        "  Сводка на неделю\n"
-        "  Сводка на месяц\n"
-        "  Список дел\n"
-        "  Ежедневные\n\n"
-        "/chatid — номер этого чата"
-    )
+    """
+    Тот же текст, что и по слову «инструкция». Один источник на двоих:
+    иначе через месяц /start и «инструкция» будут рассказывать разное.
+    """
+    text, _ = build_help()
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def cmd_chatid(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

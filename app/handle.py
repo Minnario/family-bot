@@ -26,8 +26,8 @@ from parser import ParseError, parse, TZ
 # и сводки. Держать имена членов семьи в двух файлах — гарантия того,
 # что однажды они разъедутся.
 from ui import (ASSIGNEE_RU, DAYPART_RU, WEEKDAYS_SHORT, day_label,
-                build_backlog, build_daily, build_month, build_morning,
-                build_week)
+                build_backlog, build_daily, build_help, build_month,
+                build_morning, build_week)
 
 # Тестовый chat_id для запусков из командной строки.
 # У настоящих групп Telegram он отрицательный и приходит из апдейта.
@@ -158,6 +158,13 @@ COMMANDS = {
     "список дел":         "backlog",
     "отдельные дела":     "backlog",
     "что висит":          "backlog",
+    # инструкция
+    "инструкция":         "help",
+    "инструкцию":         "help",
+    "помощь":             "help",
+    "как пользоваться":   "help",
+    "что ты умеешь":      "help",
+    "справка":            "help",
     # ежедневные
     "ежедневные":         "daily",
     "ежедневные дела":    "daily",
@@ -170,7 +177,11 @@ COMMANDS = {
 # «Посмотреть список дел», «Показать ежедневные». Отбрасываем их перед
 # сравнением, иначе кнопка переспроса не совпадёт ни с одной командой,
 # уйдёт обратно в парсер и вызовет второй такой же переспрос.
-LEAD_VERBS = ("посмотреть ", "показать ", "покажи ", "посмотри ", "открыть ")
+# Порядок важен: проверка идёт по списку и останавливается на первом
+# совпадении. «дай мне » должно стоять раньше «дай », иначе от фразы
+# «дай мне инструкцию» останется «мне инструкцию».
+LEAD_VERBS = ("дай мне ", "покажи мне ", "посмотреть ", "показать ",
+              "покажи ", "посмотри ", "открыть ", "дай ")
 
 
 def _normalize(text: str) -> str:
@@ -212,6 +223,8 @@ def _run_command(kind: str, today: date) -> Reply:
         text, kb = build_backlog(today)
     elif kind == "daily":
         text, kb = build_daily()
+    elif kind == "help":
+        text, kb = build_help()
     else:
         text, kb = build_morning(today)
     return Reply(text, None, kb, True)
