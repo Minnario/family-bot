@@ -406,9 +406,34 @@ def build_help() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     return text, None
 
 
-def build_reminder(task: Dict[str, Any], minutes: int
-                   ) -> Tuple[str, InlineKeyboardMarkup]:
-    """Точечное напоминание с кнопками."""
-    text = (f"⏰ через {minutes} мин: {who(task)} — "
+# Подписи ступеней напоминания.
+#
+# Текст фиксированный, а не посчитанный из разницы во времени. Раньше
+# считался: планировщик просыпался по своему циклу, в окно попадал
+# на несколько десятков секунд позже ровной отметки, остаток округлялся
+# вниз — и вместо «через 10 мин» приходило «через 9 мин».
+#
+# Отдельный значок у последней ступени не для красоты: только под ней
+# есть кнопки, и глазом это должно быть видно до нажатия.
+REMINDER_LABELS = {
+    "lead_60": "⏰ через 1 час",
+    "lead_30": "⏰ через 30 минут",
+    "lead_10": "⏰ через 10 минут",
+    "start":   "🔔 сейчас",
+}
+
+
+def build_reminder(task: Dict[str, Any], stage: str
+                   ) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """
+    Напоминание одной ступени.
+
+    Кнопки — только у ступени 'start'. До начала события отмечать
+    «сделано» нечего, а случайное нажатие закрывает задачу молча:
+    напоминаний по ней больше не придёт, и человек узнает об этом,
+    когда событие уже прошло.
+    """
+    label = REMINDER_LABELS[stage]
+    text = (f"{label}: {who(task)} — "
             f"<b>{escape(task['title'])}</b>  ({time_label(task)})")
-    return text, task_buttons([task])
+    return text, (task_buttons([task]) if stage == "start" else None)

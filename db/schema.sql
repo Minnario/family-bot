@@ -33,8 +33,15 @@ CREATE TYPE daypart AS ENUM ('morning', 'afternoon', 'evening');
 -- skipped — только для ежедневных: день прошёл, галочки нет, переноса нет
 CREATE TYPE task_status AS ENUM ('pending', 'done', 'skipped', 'cancelled');
 
+-- Лестница напоминаний: за час, за полчаса, за десять минут и в момент
+-- начала. Каждая ступень — отдельное значение, а не общий 'timed',
+-- потому что защита от дублей стоит на ключе (task_id, kind, sent_date):
+-- под одним видом вторая ступень того же дня не прошла бы.
+--
+-- 'timed' остаётся за пингом части дня — у него ступеней нет.
 CREATE TYPE reminder_kind AS ENUM ('digest_morning', 'digest_evening',
-                                   'timed', 'deadline');
+                                   'timed', 'deadline',
+                                   'lead_60', 'lead_30', 'lead_10', 'start');
 
 
 -- ------------------------------------------------------------

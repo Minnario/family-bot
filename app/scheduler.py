@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent))
 
 from db import (record_reminder, reminder_sent, tasks_daypart_now,
-                tasks_due_now)
+                tasks_timed_today)
 from ui import DAYPART_RU, build_evening, build_morning, build_reminder, who
 from parser import TZ
 
@@ -51,6 +51,36 @@ QUIET_TO = time(6, 0)
 # Начало частей дня. Утро не пингуем отдельно: в 08:00 уходит сводка,
 # которая эти задачи и так показывает — второе сообщение было бы шумом.
 DAYPART_START = {"afternoon": time(12, 0), "evening": time(17, 0)}
+
+# ------------------------------------------------------------------
+# Лестница напоминаний
+# ------------------------------------------------------------------
+#
+# Четыре ступени на задачу: за час, за полчаса, за десять минут
+# и в момент начала. Порядок от дальней к ближней — due_stage() идёт
+# по списку сверху вниз и останавливается на первом совпадении.
+#
+# Второй элемент пары — значение reminder_kind в базе. Виды разные
+# намеренно: защита от дублей стоит на ключе (task_id, kind, sent_date),
+# и под общим 'timed' вторая ступень дня не прошла бы.
+REMINDER_LADDER = [
+    (60, "lead_60"),
+    (30, "lead_30"),
+    (10, "lead_10"),
+    (0,  "start"),
+]
+
+# Как часто планировщик проверяет задачи, в секундах. Было 300.
+# При пятиминутном опросе ступень пришлось бы ловить окном той же
+# ширины, и «через 30 минут» уезжало бы на пять минут в любую сторону.
+# Запрос индексированный и лёгкий, минута обходится дёшево.
+POLL_INTERVAL = 60
+
+# Ширина окна ступени в минутах. Попасть ровно в 60.000 невозможно,
+# поэтому ступень 60 ловится при остатке от 58 до 60 включительно.
+# Две минуты при опросе раз в минуту гарантируют, что окно не проскочит
+# между проверками. Повтор внутри окна отсекает reminder_sent().
+STAGE_WINDOW = 2
 
 
 def is_quiet(now: datetime) -> bool:
@@ -91,36 +121,60 @@ async def evening_digest(bot, chat_id: int, now: Optional[datetime] = None) -> N
 # Точечные напоминания
 # ------------------------------------------------------------------
 
+def due_stage(left_min: float) -> Optional[str]:
+    """
+    Какая ступень наступила при таком остатке до начала, в минутах.
+
+    Возвращает вид напоминания или None, если сейчас ни одна ступень
+    не подошла. Остаток отрицательный означает, что событие уже началось:
+    ступень 'start' ловится в окне от 0 до −2 минут.
+
+    Если бот был выключен и окно ступени прошло — она не сработает
+    вовсе. Это осознанно: написать «через час» за сорок минут до начала
+    хуже, чем промолчать, а следующая ступень всё равно придёт.
+    """
+    for offset, kind in REMINDER_LADDER:
+        if offset - STAGE_WINDOW < left_min <= offset:
+            return kind
+    return None
+
+
 async def timed_reminders(bot, chat_id: int, now: Optional[datetime] = None) -> int:
     """
-    Задачи с конкретным временем — за reminder_lead минут до начала.
+    Задачи с конкретным временем — четыре ступени на каждую.
 
-    Запускается раз в пять минут. В окно напоминания задача попадёт
-    два-три раза подряд, поэтому проверка reminder_sent() обязательна.
+    Запускается раз в POLL_INTERVAL секунд, перебирает все задачи дня
+    и для каждой считает, какая ступень подошла. reminder_sent()
+    обязателен: окно ступени шире шага опроса, задача попадёт в него
+    дважды.
+
+    Кнопки приходят только с последней ступенью — это решает
+    build_reminder(), здесь клавиатура просто передаётся дальше
+    и может быть None.
     """
     now = now or datetime.now(TZ)
     if is_quiet(now):
         return 0
 
     sent = 0
-    for t in tasks_due_now(now):
-        if reminder_sent(t["id"], "timed", now.date()):
-            continue
-
+    for t in tasks_timed_today(now):
         left = (datetime.combine(now.date(), t["time_start"]) -
                 datetime.combine(now.date(), now.time()))
-        mins = max(0, int(left.total_seconds() // 60))
+        stage = due_stage(left.total_seconds() / 60)
+        if stage is None:
+            continue
+        if reminder_sent(t["id"], stage, now.date()):
+            continue
 
-        text, kb = build_reminder(t, mins)
+        text, kb = build_reminder(t, stage)
         msg = await bot.send_message(chat_id, text, parse_mode="HTML",
                                      reply_markup=kb)
         # Запись ПОСЛЕ успешной отправки: если сделать раньше и отправка
         # упадёт, напоминание потеряется молча.
-        record_reminder(t["id"], chat_id, msg.message_id, "timed", now.date())
+        record_reminder(t["id"], chat_id, msg.message_id, stage, now.date())
         sent += 1
+        log.info("напоминание %s по задаче #%s", stage, t["id"])
 
-    if sent:
-        log.info("точечных напоминаний отправлено: %d", sent)
     return sent
 
 
@@ -186,15 +240,18 @@ def register_jobs(app, chat_id: int) -> None:
                  time=DIGEST_EVENING.replace(tzinfo=TZ), name="evening")
 
     jq.run_repeating(lambda ctx: timed_reminders(ctx.bot, chat_id),
-                     interval=300, first=30, name="timed")
+                     interval=POLL_INTERVAL, first=30, name="timed")
 
     for name, start in DAYPART_START.items():
         jq.run_daily(
             lambda ctx, n=name: daypart_reminders(ctx.bot, chat_id, n),
             time=start.replace(tzinfo=TZ), name=f"daypart_{name}")
 
-    log.info("расписание: сводки %s и %s, точечные каждые 5 мин",
-             DIGEST_MORNING.strftime("%H:%M"), DIGEST_EVENING.strftime("%H:%M"))
+    log.info("расписание: сводки %s и %s, проверка задач каждые %d сек, "
+             "ступени %s",
+             DIGEST_MORNING.strftime("%H:%M"), DIGEST_EVENING.strftime("%H:%M"),
+             POLL_INTERVAL,
+             ", ".join(str(o) for o, _ in REMINDER_LADDER))
 
 
 # ------------------------------------------------------------------

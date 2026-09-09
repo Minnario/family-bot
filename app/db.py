@@ -274,17 +274,20 @@ _NOT_PAUSED = """
 """
 
 
-def tasks_due_now(now: datetime) -> List[Dict[str, Any]]:
+def tasks_timed_today(now: datetime) -> List[Dict[str, Any]]:
     """
-    Задачи, до начала которых осталось не больше reminder_lead минут
-    и которые ещё не начались.
+    Все незакрытые задачи на сегодня с точным временем начала.
 
-    Окно, а не точное совпадение: планировщик просыпается раз в пять
-    минут и может не попасть ровно в нужную минуту. Задача с лидом 10
-    попадёт в выборку в интервале от -10 до 0 минут до старта.
+    Раньше здесь считалось окно напоминания: запрос сам отбирал задачи,
+    до которых осталось не больше reminder_lead минут. Ступень была одна,
+    и это работало.
 
-    От повторной отправки защищает не этот запрос, а проверка
-    reminder_sent(): в окно задача попадёт дважды или трижды.
+    Теперь ступеней четыре — за час, за полчаса, за десять минут и в момент
+    начала, — и решает, какая наступила, планировщик. Ему для этого нужны
+    все задачи дня целиком.
+
+    Условие «ещё не началась» тоже убрано: ступень 'start' срабатывает
+    в момент начала и сразу после него, отсечка по времени её потеряла бы.
     """
     with connect() as conn:
         with conn.cursor() as cur:
@@ -296,11 +299,9 @@ def tasks_due_now(now: datetime) -> List[Dict[str, Any]]:
                    AND t.date = %(today)s
                    AND t.time_mode IN ('exact', 'range')
                    AND t.time_start IS NOT NULL
-                   AND %(now)s >= (t.time_start - make_interval(mins => t.reminder_lead))
-                   AND %(now)s <  t.time_start
                    AND {_NOT_PAUSED}
                  ORDER BY t.time_start
-            """, {"today": now.date(), "now": now.time()})
+            """, {"today": now.date()})
             return cur.fetchall()
 
 
