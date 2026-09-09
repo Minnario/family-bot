@@ -150,6 +150,29 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         }
 
 
+async def on_edited(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Отредактированное сообщение.
+
+    Telegram присылает правку отдельным полем edited_message, а не
+    message. Разбирать её как новую фразу нельзя: исходная задача уже
+    в базе, и получился бы дубль. Найти и заменить ту задачу тоже
+    непросто — связь message_id → task_id сейчас нигде не хранится.
+
+    Поэтому честно говорим, что правка не учтена. Молчание хуже:
+    человек думает, что бот перечитал текст и согласился.
+    """
+    msg = update.edited_message
+    if not msg or not msg.text:
+        return
+
+    log.info("правка: chat=%s %r", msg.chat_id, msg.text)
+    await msg.reply_text(
+        "Правку я не вижу — Telegram присылает её отдельно от сообщения.\n"
+        "Напиши фразу заново, а старую задачу отмени."
+    )
+
+
 async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Ошибки самого Telegram-слоя: сеть, лимиты, битые апдейты."""
     log.error("ошибка Telegram", exc_info=ctx.error)
@@ -313,7 +336,18 @@ def main() -> None:
     app.add_handler(CommandHandler("ping", cmd_ping))
     # ~filters.COMMAND — всё, что не команда. Иначе обработчик перехватит
     # и /start тоже, и парсер получит «/start» как текст задачи.
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    #
+    # UpdateType здесь обязателен. Без него первый обработчик забирает
+    # и правки тоже: MessageHandler смотрит на effective_message, куда
+    # попадает и edited_message. Дальше on_message читает update.message,
+    # получает None и молча выходит — ровно то поведение, из-за которого
+    # правки выглядели проигнорированными.
+    app.add_handler(MessageHandler(
+        filters.UpdateType.MESSAGE & filters.TEXT & ~filters.COMMAND,
+        on_message))
+    app.add_handler(MessageHandler(
+        filters.UpdateType.EDITED_MESSAGE & filters.TEXT & ~filters.COMMAND,
+        on_edited))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_error_handler(on_error)
 
