@@ -10,6 +10,7 @@
     python3 app/handle.py "Севе теннис во вторник в 3"
 """
 
+import re
 import sys
 from collections import namedtuple
 from datetime import date, datetime, timedelta
@@ -203,6 +204,62 @@ def _run_command(kind: str, today: date) -> Reply:
 
 
 # ------------------------------------------------------------------
+# Автоответ на переспрос по части дня
+# ------------------------------------------------------------------
+# «Зарядка утром в 8» → парсер честно спрашивает «08:00 или 20:00?»,
+# хотя слово «утром» уже всё решило. Правило механическое, и место
+# ему в коде, а не в промпте: три попытки вписать его в промпт
+# ломали соседние правила (кейсы #5, #23, #34 в датасете).
+#
+# Код выбирает вариант сам и прогоняет фразу через тот же путь
+# «Уточнение: …», что и нажатие кнопки. Один лишний вызов API
+# в редком случае — дешевле, чем нестабильный промпт.
+
+DAYPART_HINTS = {
+    "утром": "am", "днём": "am", "днем": "am",
+    "вечером": "pm", "ночью": "pm",
+}
+
+CLARIFY_MARK = "Уточнение:"
+
+
+def _resolve_by_daypart(text: str, result: Dict[str, Any]) -> Optional[str]:
+    """
+    Возвращает вариант ответа, если переспрос — про половину суток,
+    а фраза сама на неё указывает. Иначе None, и кнопки покажутся
+    как обычно.
+
+    Условия жёсткие намеренно: ровно два варианта, оба — время,
+    разница ровно 12 часов. Любой другой переспрос («какой матч?»,
+    «18:10 или 6 октября?») этот код не трогает.
+    """
+    if CLARIFY_MARK in text:
+        return None                      # уже отвечали, второй круг не нужен
+
+    c = result.get("clarification") or {}
+    opts = [o.strip() for o in (c.get("options") or [])]
+    if len(opts) != 2:
+        return None
+
+    try:
+        t0 = datetime.strptime(opts[0], "%H:%M")
+        t1 = datetime.strptime(opts[1], "%H:%M")
+    except ValueError:
+        return None
+    if abs(t0.hour - t1.hour) != 12 or t0.minute != t1.minute:
+        return None
+
+    low = text.lower()
+    hint = next((half for word, half in DAYPART_HINTS.items()
+                 if re.search(rf"\b{word}\b", low)), None)
+    if hint is None:
+        return None
+
+    am, pm = sorted(opts, key=lambda o: datetime.strptime(o, "%H:%M"))
+    return am if hint == "am" else pm
+
+
+# ------------------------------------------------------------------
 # Обработка
 # ------------------------------------------------------------------
 
@@ -247,6 +304,13 @@ def handle_message(text: str,
     )
 
     action = result.get("action")
+
+    # --- автоответ, если переспрос снимается словом про часть дня ---
+    if action == "clarify":
+        auto = _resolve_by_daypart(text, result)
+        if auto:
+            return handle_message(f"{text}\n{CLARIFY_MARK} {auto}",
+                                  chat_id, message_id)
 
     # --- переспрос ---
     # Пока текстом. Когда появится Telegram, здесь будут кнопки.
