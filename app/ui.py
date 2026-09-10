@@ -90,11 +90,24 @@ def task_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]:
 
     Время в ярлыке обязательно. Без него два «Сева · теннис» на разное
     время выглядят одинаково, и человек не знает, какую закрывает.
+
+    Ежедневные пропускаются. Причина та же, по которой у них нет галочки
+    в списке привычек: complete_task() ставит done навсегда, механизма
+    сброса по дням нет, и нажатие означало бы «удалить привычку»,
+    а не «сделал сегодня».
+
+    Раньше это было неважно — ежедневные нигде не встречались с кнопками.
+    Теперь встречаются: напоминание в момент начала несёт ✅, и без этой
+    проверки первое же нажатие тихо закрыло бы привычку навсегда.
+
+    Если после отсева ничего не осталось, клавиатуры нет вовсе.
     """
     if not tasks or len(tasks) > 8:
         return None
     rows = []
     for t in tasks:
+        if t.get("list") == "daily":
+            continue
         tl = time_label(t)
         label = f"{tl} {who(t)} · {t['title']}" if tl else f"{who(t)} · {t['title']}"
         # Telegram обрезает длинные ярлыки по-своему, лучше сделать это
@@ -105,7 +118,7 @@ def task_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]:
             InlineKeyboardButton(f"✅ {label}", callback_data=f"done:{t['id']}"),
             InlineKeyboardButton("⏰", callback_data=f"post:{t['id']}"),
         ])
-    return InlineKeyboardMarkup(rows)
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
 def period_buttons(tasks: List[Dict[str, Any]],
@@ -116,11 +129,16 @@ def period_buttons(tasks: List[Dict[str, Any]],
     Без дня «Сева · теннис» во вторник и в четверг выглядят одинаково,
     и человек закроет не ту. В дневной сводке этой проблемы нет — там
     день один на всё сообщение.
+
+    Ежедневные пропускаются — как и в task_buttons, см. пояснение там.
+    Если после отсева ничего не осталось, клавиатуры нет вовсе.
     """
     if not tasks or len(tasks) > 8:
         return None
     rows = []
     for t in tasks:
+        if t.get("list") == "daily":
+            continue
         parts = [day_label(t.get("date"), today), time_label(t),
                  f"{who(t)} · {t['title']}"]
         label = " ".join(x for x in parts if x)
@@ -130,7 +148,7 @@ def period_buttons(tasks: List[Dict[str, Any]],
             InlineKeyboardButton(f"✅ {label}", callback_data=f"done:{t['id']}"),
             InlineKeyboardButton("⏰", callback_data=f"post:{t['id']}"),
         ])
-    return InlineKeyboardMarkup(rows)
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
 def daily_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]:

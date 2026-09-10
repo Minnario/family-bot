@@ -288,17 +288,28 @@ def tasks_timed_today(now: datetime) -> List[Dict[str, Any]]:
 
     Условие «ещё не началась» тоже убрано: ступень 'start' срабатывает
     в момент начала и сразу после него, отсечка по времени её потеряла бы.
+
+    Ежедневные попадают сюда по отдельной ветке: у них date равен NULL,
+    потому что одна строка служит и правилом, и экземпляром. Раньше
+    условие date = сегодня отсекало их молча, и привычка со временем
+    («ложить спать в 20:00») не получала напоминаний вовсе.
+
+    Повторную отправку это не ломает: ключ в reminders — (task_id, kind,
+    sent_date), то есть посуточный. Одна и та же ежедневная задача
+    получит свой набор ступеней каждый день.
+
+    Поле list в выборке нужно вёрстке: у ежедневных не должно быть кнопок.
     """
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(f"""
-                SELECT t.id, t.title, t.assignee, t.time_mode,
+                SELECT t.id, t.title, t.assignee, t.list, t.time_mode,
                        t.time_start, t.time_end, t.reminder_lead
                   FROM tasks t
                  WHERE t.status = 'pending'
-                   AND t.date = %(today)s
                    AND t.time_mode IN ('exact', 'range')
                    AND t.time_start IS NOT NULL
+                   AND (t.date = %(today)s OR t.list = 'daily')
                    AND {_NOT_PAUSED}
                  ORDER BY t.time_start
             """, {"today": now.date()})
@@ -306,16 +317,24 @@ def tasks_timed_today(now: datetime) -> List[Dict[str, Any]]:
 
 
 def tasks_daypart_now(now: datetime, daypart_name: str) -> List[Dict[str, Any]]:
-    """Задачи на сегодня с указанной частью дня — для пинга в начале окна."""
+    """
+    Задачи на сегодня с указанной частью дня — для пинга в начале окна.
+
+    Ежедневные включены той же веткой, что и в tasks_timed_today():
+    у них date равен NULL, и условие date = сегодня отсекало их молча.
+    «Чистить зубы вечером» не получало пинга в 17:00 именно поэтому.
+
+    Поле list в выборке нужно вёрстке: у ежедневных не должно быть кнопок.
+    """
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(f"""
-                SELECT t.id, t.title, t.assignee, t.daypart
+                SELECT t.id, t.title, t.assignee, t.list, t.daypart
                   FROM tasks t
                  WHERE t.status = 'pending'
-                   AND t.date = %(today)s
                    AND t.time_mode = 'daypart'
                    AND t.daypart = %(dp)s
+                   AND (t.date = %(today)s OR t.list = 'daily')
                    AND {_NOT_PAUSED}
                  ORDER BY t.id
             """, {"today": now.date(), "dp": daypart_name})
