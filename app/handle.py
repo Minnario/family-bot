@@ -370,17 +370,23 @@ def _nearest_weekday(today: date, target: int) -> date:
     return today + timedelta(days=ahead or 7)
 
 
-def _named_weekday(text: str) -> Optional[int]:
+def _named_weekdays(text: str) -> List[int]:
     """
-    Номер дня недели, названного во фразе, или None.
+    Номера всех дней недели, названных во фразе, по возрастанию.
 
-    Два разных дня в одной фразе («с четверга до субботы») дают None:
-    какой из них относится к дате, отсюда не видно, и вмешиваться нельзя.
+    Раньше возвращался один номер, а несколько дней давали None —
+    код отказывался вмешиваться. Теперь несколько дней это не помеха,
+    а сам смысл: «домашка пн вт ср чт» означает четыре задачи.
     """
     low = text.lower()
-    found = {num for num, forms in WEEKDAY_WORDS.items()
-             if any(re.search(rf"\b{w}\b", low) for w in forms)}
-    return found.pop() if len(found) == 1 else None
+    return sorted(num for num, forms in WEEKDAY_WORDS.items()
+                  if any(re.search(rf"\b{w}\b", low) for w in forms))
+
+
+def _named_weekday(text: str) -> Optional[int]:
+    """Единственный названный день недели или None, если их не ровно один."""
+    found = _named_weekdays(text)
+    return found[0] if len(found) == 1 else None
 
 
 def _fix_weekday_date(text: str, value: Optional[str],
@@ -417,6 +423,69 @@ def _fix_weekday_date(text: str, value: Optional[str],
 
     nearest = _nearest_weekday(today, target)
     return value if parsed == nearest else nearest.isoformat()
+
+
+# Потолок на размножение. Четыре дня на двоих детей — восемь задач,
+# это нормально. Число заметно больше означает, что разбор пошёл не так:
+# лучше оставить ответ модели как есть, чем засыпать чат.
+MAX_EXPANDED = 20
+
+
+def _expand_weekdays(text: str, tasks: List[Dict[str, Any]],
+                     today: date) -> List[Dict[str, Any]]:
+    """
+    Размножает задачи по всем дням недели, названным во фразе.
+
+    «В 4 часа дня, понедельник, вторник, среда, четверг, домашка, Севе,
+    Глеб» → восемь задач: по одной каждому ребёнку на каждый день.
+
+    Почему это здесь, а не в промпте. Правило 5 говорит обратное:
+    задачу размножают только имена. Модель его иногда нарушала и делала
+    восемь задач, иногда соблюдала и делала две — прогон eval поймал
+    ровно это, 0 из 3. Поведение зависело от контекста, а не от правил.
+
+    Само правило чисто арифметическое: названо N дней — значит N дат,
+    каждая считается от сегодняшнего числа. Ему место в коде.
+    Промпт при этом не трогаем: парсер обязан отдавать по задаче на имя,
+    размножение по дням — работа этого слоя.
+
+    Не вмешивается, если: дней названо меньше двух, во фразе явная дата
+    или слово «через», задачи без даты (отдельные дела и ежедневные —
+    у них дня нет по определению), модель уже разложила задачи ровно
+    по нужным датам, или результат вышел бы больше MAX_EXPANDED.
+    """
+    targets = _named_weekdays(text)
+    if len(targets) < 2:
+        return tasks
+    if _EXPLICIT_DATE.search(text) or _FAR_WEEK.search(text.lower()):
+        return tasks
+
+    dated = [t for t in tasks if t.get("date")]
+    if not dated:
+        return tasks
+
+    target_dates = [_nearest_weekday(today, wd) for wd in targets]
+
+    # Модель иногда сама раскладывает задачи по дням. Тогда даты уже
+    # те, что нужно, и второй проход умножил бы восемь задач на четыре.
+    present = {t["date"] for t in dated}
+    if present == {d.isoformat() for d in target_dates}:
+        return tasks
+
+    if len(dated) * len(target_dates) > MAX_EXPANDED:
+        return tasks
+
+    # Порядок: по дням, внутри дня — как во фразе. «Севе, Глеб» даёт
+    # сначала Севу, потом Глеба, и так в каждом дне.
+    expanded = []
+    for d in target_dates:
+        for t in dated:
+            copy = dict(t)
+            copy["date"] = d.isoformat()
+            expanded.append(copy)
+
+    # Задачи без даты проходят мимо размножения, но из ответа не пропадают.
+    return expanded + [t for t in tasks if not t.get("date")]
 
 
 # ------------------------------------------------------------------
@@ -490,6 +559,10 @@ def handle_message(text: str,
         # ближайший четверг. Подробности — в _fix_weekday_date().
         for t in tasks:
             t["date"] = _fix_weekday_date(text, t.get("date"), today)
+
+        # Несколько дней недели во фразе — задача на каждый из них.
+        # Подробности — в _expand_weekdays().
+        tasks = _expand_weekdays(text, tasks, today)
 
         # Одна транзакция: если вторая задача не пройдёт проверки базы,
         # первая тоже откатится. Иначе человек получит подтверждение
