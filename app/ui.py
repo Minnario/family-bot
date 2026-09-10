@@ -32,6 +32,9 @@ ASSIGNEE_RU = {
 
 DAYPART_RU = {"morning": "утром", "afternoon": "днём", "evening": "вечером"}
 
+# Тот же набор, но в форме для заголовка: «На вечер», а не «На вечером».
+DAYPART_HEADING = {"morning": "утро", "afternoon": "день", "evening": "вечер"}
+
 WEEKDAYS_SHORT = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
 
 MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
@@ -43,7 +46,26 @@ MONTHS_RU = ["января", "февраля", "марта", "апреля", "м
 # ------------------------------------------------------------------
 
 def who(task: Dict[str, Any]) -> str:
-    return ASSIGNEE_RU.get(task.get("assignee")) or "дом"
+    """
+    Имя исполнителя или пустая строка для общих дел.
+
+    Раньше возвращалось «дом». Смысла в этом оказалось мало: строка
+    «дом — косить траву» ничего не добавляет к «косить траву», а в
+    сводке из десяти дел половина начиналась одинаково и мешала читать.
+    Отсутствие имени и так означает, что дело общее.
+    """
+    return ASSIGNEE_RU.get(task.get("assignee")) or ""
+
+
+def name_prefix(task: Dict[str, Any], sep: str = " — ") -> str:
+    """
+    Имя с разделителем или пустая строка.
+
+    Нужен, чтобы у общих дел не оставалось висящее тире: без имени
+    строка начинается сразу с названия.
+    """
+    name = who(task)
+    return f"{name}{sep}" if name else ""
 
 
 def time_label(task: Dict[str, Any]) -> str:
@@ -74,7 +96,7 @@ def task_line(t: Dict[str, Any]) -> str:
     """Одна строка задачи. Текст задачи экранируется — он от пользователя."""
     tl = time_label(t)
     prefix = f"{tl}  " if tl else ""
-    return f"{prefix}{who(t)} — {escape(t['title'])}"
+    return f"{prefix}{name_prefix(t)}{escape(t['title'])}"
 
 
 # ------------------------------------------------------------------
@@ -109,7 +131,8 @@ def task_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]:
         if t.get("list") == "daily":
             continue
         tl = time_label(t)
-        label = f"{tl} {who(t)} · {t['title']}" if tl else f"{who(t)} · {t['title']}"
+        label = (f"{tl} {name_prefix(t, ' · ')}{t['title']}" if tl
+                 else f"{name_prefix(t, ' · ')}{t['title']}")
         # Telegram обрезает длинные ярлыки по-своему, лучше сделать это
         # самим — так видно, что текст сокращён.
         if len(label) > 30:
@@ -140,7 +163,7 @@ def period_buttons(tasks: List[Dict[str, Any]],
         if t.get("list") == "daily":
             continue
         parts = [day_label(t.get("date"), today), time_label(t),
-                 f"{who(t)} · {t['title']}"]
+                 f"{name_prefix(t, ' · ')}{t['title']}"]
         label = " ".join(x for x in parts if x)
         if len(label) > 30:
             label = label[:29] + "…"
@@ -166,7 +189,7 @@ def daily_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]
         return None
     rows = []
     for t in tasks:
-        label = f"{who(t)} · {t['title']}"
+        label = f"{name_prefix(t, ' · ')}{t['title']}"
         if len(label) > 28:
             label = label[:27] + "…"
         rows.append([
@@ -189,16 +212,32 @@ def clarify_buttons(options: List[str]) -> Optional[InlineKeyboardMarkup]:
     return InlineKeyboardMarkup(rows)
 
 
-def postpone_options(task_id: int) -> InlineKeyboardMarkup:
-    """Второй уровень: куда переносим. Показывается после нажатия ⏰."""
-    return InlineKeyboardMarkup([
+def postpone_options(task_id: int,
+                     task: Optional[Dict[str, Any]] = None
+                     ) -> InlineKeyboardMarkup:
+    """
+    Второй уровень: куда переносим. Показывается после нажатия ⏰.
+
+    Первая строка называет задачу. Без неё меню висит под всей сводкой
+    и выглядит как общие кнопки неизвестно к чему: в месячной сводке
+    два десятка задач, а «Завтра» относится к одной из них.
+    """
+    rows = []
+    if task:
+        title = f"{name_prefix(task, ' · ')}{task['title']}"
+        if len(title) > 30:
+            title = title[:29] + "…"
+        rows.append([InlineKeyboardButton(f"↓ переношу: {title}",
+                                          callback_data="noop")])
+    rows += [
         [InlineKeyboardButton("Завтра", callback_data=f"pto:{task_id}:1"),
          InlineKeyboardButton("Послезавтра", callback_data=f"pto:{task_id}:2")],
         [InlineKeyboardButton("Через неделю", callback_data=f"pto:{task_id}:7"),
          InlineKeyboardButton("Убрать дату", callback_data=f"pto:{task_id}:x")],
         [InlineKeyboardButton("Отменить задачу", callback_data=f"cancel:{task_id}"),
          InlineKeyboardButton("← Назад", callback_data="back")],
-    ])
+    ]
+    return InlineKeyboardMarkup(rows)
 
 
 # ------------------------------------------------------------------
@@ -224,19 +263,19 @@ def build_morning(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
         lines.append("")
         for t in deadlines:
             mark = "🔴 сегодня" if t["deadline"] == today else "⚡ завтра"
-            lines.append(f"{mark} дедлайн: {who(t)} — {escape(t['title'])}")
+            lines.append(f"{mark} дедлайн: {name_prefix(t)}{escape(t['title'])}")
 
     if overdue:
         lines.append("")
         lines.append("🔴 <b>Просрочено:</b>")
         for t in overdue:
-            lines.append(f"  {who(t)} — {escape(t['title'])} "
+            lines.append(f"  {name_prefix(t)}{escape(t['title'])} "
                          f"({day_label(t['date'], today)})")
 
     if daily:
         lines.append("")
         lines.append("☑️ Ежедневно: " + " · ".join(
-            f"{who(t)} {escape(t['title'])}" for t in daily))
+            f"{name_prefix(t, ' ')}{escape(t['title'])}" for t in daily))
 
     return "\n".join(lines), task_buttons(today_tasks)
 
@@ -251,20 +290,20 @@ def build_evening(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
 
     if left:
         lines.append("Не отмечено сегодня:")
-        lines += [f"  {who(t)} — {escape(t['title'])}" for t in left]
+        lines += [f"  {name_prefix(t)}{escape(t['title'])}" for t in left]
     else:
         lines.append("Всё на сегодня закрыто. ✅")
 
     if daily:
         lines.append("")
         lines.append("Ежедневные: " + " · ".join(
-            f"{who(t)} {escape(t['title'])}" for t in daily))
+            f"{name_prefix(t, ' ')}{escape(t['title'])}" for t in daily))
 
     if backlog:
         lines.append("")
         lines.append("📌 <b>Отдельные дела:</b>")
         for t in backlog:
-            row = f"  {who(t)} — {escape(t['title'])}"
+            row = f"  {name_prefix(t)}{escape(t['title'])}"
             if t.get("deadline"):
                 row += f"  ⏳ до {day_label(t['deadline'], today)}"
             # Счётчик виден с четвёртого переноса: задача, которую двигают
@@ -352,7 +391,7 @@ def build_backlog(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
 
     lines = ["📌 <b>Отдельные дела</b>", ""]
     for t in backlog:
-        row = f"  {who(t)} — {escape(t['title'])}"
+        row = f"  {name_prefix(t)}{escape(t['title'])}"
         if t.get("deadline"):
             row += f"  ⏳ до {day_label(t['deadline'], today)}"
         if (t.get("postponed_count") or 0) >= 4:
@@ -360,6 +399,64 @@ def build_backlog(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
         lines.append(row)
 
     return "\n".join(lines), task_buttons(backlog)
+
+
+def build_all(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """
+    Всё сразу: месяц по дням, отдельные дела, ежедневные.
+
+    Отличается от месячной сводки тем, что не отбрасывает списки без
+    даты. Месячная показывает только запланированное по дням — отдельные
+    дела и привычки в неё не попадают по определению, и человеку
+    приходится спрашивать три раза.
+
+    Кнопок нет намеренно. Задач тут обычно больше восьми, а частичная
+    клавиатура (кнопки к первым восьми из двадцати) хуже, чем никакой:
+    непонятно, почему у одних дел кнопка есть, а у других нет.
+    Закрывать и переносить — из дневной или недельной сводки.
+    """
+    last = today + timedelta(days=29)
+    scheduled = tasks_for_range(today, last)
+    overdue = tasks_overdue(today)
+    backlog = tasks_backlog(today)
+    daily = tasks_daily()
+
+    lines = [f"🧾 <b>Всё сразу: {today.day} {MONTHS_RU[today.month - 1]} — "
+             f"{last.day} {MONTHS_RU[last.month - 1]}</b>"]
+
+    if overdue:
+        lines += ["", "🔴 <b>Просрочено:</b>"]
+        lines += [f"  {day_label(t['date'], today)} {name_prefix(t)}"
+                  f"{escape(t['title'])}" for t in overdue]
+
+    if scheduled:
+        current = None
+        for t in scheduled:
+            if t["date"] != current:
+                current = t["date"]
+                lines += ["", f"<b>{day_label(current, today)}</b>"]
+            tl = time_label(t)
+            lines.append(f"  {tl + '  ' if tl else ''}"
+                         f"{name_prefix(t)}{escape(t['title'])}")
+    else:
+        lines += ["", "На ближайший месяц ничего не запланировано."]
+
+    if backlog:
+        lines += ["", "📌 <b>Отдельные дела:</b>"]
+        for t in backlog:
+            row = f"  {name_prefix(t)}{escape(t['title'])}"
+            if t.get("deadline"):
+                row += f"  ⏳ до {day_label(t['deadline'], today)}"
+            lines.append(row)
+
+    if daily:
+        lines += ["", "🔁 <b>Ежедневные:</b>"]
+        for t in daily:
+            tl = time_label(t)
+            lines.append(f"  {tl + '  ' if tl else ''}"
+                         f"{name_prefix(t)}{escape(t['title'])}")
+
+    return "\n".join(lines), None
 
 
 def build_daily() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
@@ -376,7 +473,7 @@ def build_daily() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
                 None)
 
     lines = ["🔁 <b>Ежедневные дела</b>", ""]
-    lines += [f"  {who(t)} — {escape(t['title'])}" for t in daily]
+    lines += [f"  {name_prefix(t)}{escape(t['title'])}" for t in daily]
     lines.append("")
     lines.append("<i>Кнопка убирает дело насовсем.</i>")
 
@@ -452,6 +549,6 @@ def build_reminder(task: Dict[str, Any], stage: str
     когда событие уже прошло.
     """
     label = REMINDER_LABELS[stage]
-    text = (f"{label}: {who(task)} — "
+    text = (f"{label}: {name_prefix(task)}"
             f"<b>{escape(task['title'])}</b>  ({time_label(task)})")
     return text, (task_buttons([task]) if stage == "start" else None)

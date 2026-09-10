@@ -26,8 +26,8 @@ from parser import ParseError, parse, TZ
 # и сводки. Держать имена членов семьи в двух файлах — гарантия того,
 # что однажды они разъедутся.
 from ui import (ASSIGNEE_RU, DAYPART_RU, WEEKDAYS_SHORT, day_label,
-                build_backlog, build_daily, build_help, build_month,
-                build_morning, build_week)
+                build_all, build_backlog, build_daily, build_help,
+                build_month, build_morning, build_week)
 
 # Тестовый chat_id для запусков из командной строки.
 # У настоящих групп Telegram он отрицательный и приходит из апдейта.
@@ -130,6 +130,7 @@ COMMANDS = {
     "сводка на день":     "day",
     "сводка за день":     "day",
     "сводка дня":         "day",
+    "сводка день":        "day",
     "сводка на сегодня":  "day",
     "что сегодня":        "day",
     "план на день":       "day",
@@ -140,6 +141,8 @@ COMMANDS = {
     "сводка на неделю":   "week",
     "сводка за неделю":   "week",
     "сводка недели":      "week",
+    "сводка неделя":      "week",
+    "сводка неделю":      "week",
     "план на неделю":     "week",
     "план недели":        "week",
     "что на неделе":      "week",
@@ -149,11 +152,27 @@ COMMANDS = {
     "сводка на месяц":    "month",
     "сводка за месяц":    "month",
     "сводка месяца":      "month",
+    "сводка месяц":       "month",
     "план на месяц":      "month",
     "план месяца":        "month",
     "что на месяц":       "month",
     "задачи на месяц":    "month",
     "дела на месяц":      "month",
+    # всё сразу: месяц по дням + отдельные дела + ежедневные
+    "сводка вся":         "all",
+    "сводка общая":       "all",
+    "общая сводка":       "all",
+    "вся сводка":         "all",
+    "полная сводка":      "all",
+    "полную сводку":      "all",
+    "общую сводку":       "all",
+    "всю сводку":         "all",
+    "сводка полная":      "all",
+    "сводка всё":         "all",
+    "сводка все":         "all",
+    "всё сразу":          "all",
+    "все дела":           "all",
+    "все задачи":         "all",
     # дела без даты
     "список дел":         "backlog",
     "отдельные дела":     "backlog",
@@ -194,7 +213,14 @@ def _normalize(text: str) -> str:
     cleaned = " ".join(text.lower().split()).rstrip(".!?…")
     for verb in LEAD_VERBS:
         if cleaned.startswith(verb):
-            return cleaned[len(verb):]
+            cleaned = cleaned[len(verb):]
+            break
+    # После отбрасывания глагола остаётся винительный падеж: «покажи
+    # сводку на неделю» → «сводку на неделю». В таблице ключи в
+    # именительном, поэтому одно слово приводим здесь, а не заводим
+    # вторую копию всех сорока форм.
+    if cleaned.startswith("сводку"):
+        cleaned = "сводка" + cleaned[len("сводку"):]
     return cleaned
 
 
@@ -219,6 +245,8 @@ def _run_command(kind: str, today: date) -> Reply:
         text, kb = build_week(today)
     elif kind == "month":
         text, kb = build_month(today)
+    elif kind == "all":
+        text, kb = build_all(today)
     elif kind == "backlog":
         text, kb = build_backlog(today)
     elif kind == "daily":

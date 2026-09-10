@@ -28,7 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from db import (record_reminder, reminder_sent, tasks_daypart_now,
                 tasks_timed_today)
-from ui import DAYPART_RU, build_evening, build_morning, build_reminder, who
+from ui import (DAYPART_HEADING, build_evening, build_morning, build_reminder,
+                name_prefix)
 from parser import TZ
 
 ROOT = Path(__file__).parent.parent
@@ -56,15 +57,19 @@ DAYPART_START = {"afternoon": time(12, 0), "evening": time(17, 0)}
 # Лестница напоминаний
 # ------------------------------------------------------------------
 #
-# Четыре ступени на задачу: за час, за полчаса, за десять минут
-# и в момент начала. Порядок от дальней к ближней — due_stage() идёт
-# по списку сверху вниз и останавливается на первом совпадении.
+# Три ступени на задачу: за полчаса, за десять минут и в момент начала.
+# Порядок от дальней к ближней — due_stage() идёт по списку сверху вниз
+# и останавливается на первом совпадении.
+#
+# Часовая ступень (60, "lead_60") была здесь и убрана по решению
+# от 9 сентября: слишком рано, чтобы быть полезной. Значение lead_60
+# осталось и в ENUM базы, и в REMINDER_LABELS — вернуть ступень можно
+# одной строкой, миграция для этого не нужна.
 #
 # Второй элемент пары — значение reminder_kind в базе. Виды разные
 # намеренно: защита от дублей стоит на ключе (task_id, kind, sent_date),
 # и под общим 'timed' вторая ступень дня не прошла бы.
 REMINDER_LADDER = [
-    (60, "lead_60"),
     (30, "lead_30"),
     (10, "lead_10"),
     (0,  "start"),
@@ -129,9 +134,12 @@ def due_stage(left_min: float) -> Optional[str]:
     не подошла. Остаток отрицательный означает, что событие уже началось:
     ступень 'start' ловится в окне от 0 до −2 минут.
 
+    Окно, а не точка: попасть ровно в 30.000 невозможно, поэтому ступень
+    30 срабатывает при остатке от 28 до 30 включительно.
+
     Если бот был выключен и окно ступени прошло — она не сработает
-    вовсе. Это осознанно: написать «через час» за сорок минут до начала
-    хуже, чем промолчать, а следующая ступень всё равно придёт.
+    вовсе. Это осознанно: написать «через 30 минут» за пятнадцать минут
+    до начала хуже, чем промолчать, а следующая ступень всё равно придёт.
     """
     for offset, kind in REMINDER_LADDER:
         if offset - STAGE_WINDOW < left_min <= offset:
@@ -141,7 +149,7 @@ def due_stage(left_min: float) -> Optional[str]:
 
 async def timed_reminders(bot, chat_id: int, now: Optional[datetime] = None) -> int:
     """
-    Задачи с конкретным временем — четыре ступени на каждую.
+    Задачи с конкретным временем — три ступени на каждую.
 
     Запускается раз в POLL_INTERVAL секунд, перебирает все задачи дня
     и для каждой считает, какая ступень подошла. reminder_sent()
@@ -193,9 +201,9 @@ async def daypart_reminders(bot, chat_id: int, daypart_name: str,
     from ui import task_buttons
     from html import escape
 
-    label = DAYPART_RU.get(daypart_name, daypart_name)
+    label = DAYPART_HEADING.get(daypart_name, daypart_name)
     lines = [f"⏰ На {label}:"] + [
-        f"  {who(t)} — {escape(t['title'])}" for t in tasks]
+        f"  {name_prefix(t)}{escape(t['title'])}" for t in tasks]
 
     msg = await bot.send_message(chat_id, "\n".join(lines),
                                  parse_mode="HTML",

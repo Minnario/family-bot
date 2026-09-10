@@ -26,13 +26,13 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from db import cancel_task, complete_task, reschedule_task
+from db import cancel_task, complete_task, get_task, reschedule_task
 from handle import handle_message, try_command
 from parser import TZ
 from scheduler import register_jobs
-from ui import (build_backlog, build_daily, build_evening, build_help,
-                build_month, build_morning, build_week, clarify_buttons,
-                postpone_options)
+from ui import (build_all, build_backlog, build_daily, build_evening,
+                build_help, build_month, build_morning, build_week,
+                clarify_buttons, postpone_options)
 
 ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
@@ -198,6 +198,8 @@ async def _rerender(query, chat_id: int) -> None:
         text, kb = build_week(today)
     elif head.startswith("🗓"):
         text, kb = build_month(today)
+    elif head.startswith("🧾"):
+        text, kb = build_all(today)
     elif head.startswith("📌"):
         text, kb = build_backlog(today)
     elif head.startswith("🔁"):
@@ -219,6 +221,13 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("кнопка: chat=%s %r", query.message.chat_id, data)
 
     try:
+        if data == "noop":
+            # Кнопка-заголовок в меню переноса: нужна только чтобы
+            # показать, какую задачу переносим. Нажатие ничего не меняет,
+            # но ответить обязательно — иначе висят «часики».
+            await query.answer()
+            return
+
         if data == "back":
             # Возврат из меню переноса: восстанавливаем обычные кнопки
             await _rerender(query, query.message.chat_id)
@@ -266,9 +275,12 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await _rerender(query, query.message.chat_id)
 
         elif action == "post":
-            # Первый уровень: показываем варианты, текст не трогаем
+            # Первый уровень: показываем варианты, текст не трогаем.
+            # Задачу подтягиваем, чтобы меню назвало её: под месячной
+            # сводкой иначе не видно, к чему относится «Завтра».
+            task = await asyncio.to_thread(get_task, int(rest))
             await query.edit_message_reply_markup(
-                reply_markup=postpone_options(int(rest)))
+                reply_markup=postpone_options(int(rest), task))
             await query.answer()
 
         elif action == "pto":
