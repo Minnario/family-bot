@@ -20,6 +20,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.constants import ChatAction
 from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
                           ContextTypes, MessageHandler, filters)
@@ -175,6 +176,47 @@ async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # Нажатия на кнопки
 # ------------------------------------------------------------------
 
+async def _safe_edit(coro) -> bool:
+    """
+    Правка сообщения, которая переживает «Message is not modified».
+
+    Telegram считает ошибкой попытку заменить сообщение на точно такое
+    же. Для нас это норма: перерисовка сводки после нажатия ✅ на уже
+    закрытой задаче даёт тот же текст, и убрать клавиатуру, которой
+    нет, — тоже.
+
+    Ловилось так: два нажатия на один вариант переспроса с разницей
+    в три секунды. Второе честно отвечало «уточнение устарело», потом
+    падало на снятии несуществующей клавиатуры, а общий except пытался
+    ответить второй раз на уже отвеченный запрос.
+
+    Возвращает False, если правка была лишней. Остальные ошибки
+    пробрасываются: глушить их скопом — верный способ спрятать
+    настоящую поломку.
+    """
+    try:
+        await coro
+        return True
+    except BadRequest as exc:
+        if "not modified" in str(exc).lower():
+            return False
+        raise
+
+
+async def _answer(query, text: str = "") -> None:
+    """
+    Ответ на нажатие, безопасный при повторе.
+
+    Telegram разрешает отвечать на запрос один раз. Вторая попытка —
+    из блока except, например — сама бросает исключение и уводит
+    внимание от настоящей причины.
+    """
+    try:
+        await query.answer(text)
+    except BadRequest:
+        pass
+
+
 async def _rerender(query, chat_id: int) -> None:
     """
     Перерисовывает сообщение, под которым нажали кнопку.
@@ -207,12 +249,13 @@ async def _rerender(query, chat_id: int) -> None:
     else:
         # Точечное напоминание или пинг на часть дня: задача закрыта,
         # перерисовывать нечего — убираем кнопки и помечаем сообщение.
-        await query.edit_message_text(
+        await _safe_edit(query.edit_message_text(
             (query.message.text_html or query.message.text) + "\n✅",
-            parse_mode="HTML")
+            parse_mode="HTML"))
         return
 
-    await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    await _safe_edit(
+        query.edit_message_text(text, parse_mode="HTML", reply_markup=kb))
 
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -240,8 +283,9 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             pending = ctx.bot_data.get("clarify", {}).pop(
                 query.message.message_id, None)
             if not pending:
-                await query.answer("Уточнение устарело, повтори фразу")
-                await query.edit_message_reply_markup(reply_markup=None)
+                await _answer(query, "Уточнение устарело, повтори фразу")
+                await _safe_edit(
+                    query.edit_message_reply_markup(reply_markup=None))
                 return
             choice = pending["options"][int(rest)]
             await query.answer(choice[:60])
@@ -262,7 +306,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 reply = await asyncio.to_thread(
                     handle_message, combined, query.message.chat_id)
 
-            await query.edit_message_text(f"{query.message.text}\n\n→ {choice}")
+            await _safe_edit(
+                query.edit_message_text(f"{query.message.text}\n\n→ {choice}"))
             await ctx.bot.send_message(
                 query.message.chat_id, reply.text,
                 reply_markup=reply.markup,
@@ -279,8 +324,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             # Задачу подтягиваем, чтобы меню назвало её: под месячной
             # сводкой иначе не видно, к чему относится «Завтра».
             task = await asyncio.to_thread(get_task, int(rest))
-            await query.edit_message_reply_markup(
-                reply_markup=postpone_options(int(rest), task))
+            await _safe_edit(query.edit_message_reply_markup(
+                reply_markup=postpone_options(int(rest), task)))
             await query.answer()
 
         elif action == "pto":
@@ -305,7 +350,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         log.exception("сбой обработки кнопки")
         # answer() обязателен: без него у человека висит «часики» на кнопке
         # до таймаута, и кажется, что бот завис.
-        await query.answer("Что-то сломалось")
+        await _answer(query, "Что-то сломалось")
 
 
 # ------------------------------------------------------------------
