@@ -12,6 +12,7 @@
     python3 app/scheduler.py evening
     python3 app/scheduler.py timed
     python3 app/scheduler.py daypart evening
+    python3 app/scheduler.py expand
 """
 
 import asyncio
@@ -26,8 +27,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from db import (record_reminder, reminder_sent, tasks_daypart_now,
-                tasks_timed_today)
+from db import (expand_templates, record_reminder, reminder_sent,
+                tasks_daypart_now, tasks_timed_today)
 from ui import (DAYPART_HEADING, build_evening, build_morning, build_reminder,
                 name_prefix)
 from parser import TZ
@@ -43,6 +44,16 @@ log = logging.getLogger("scheduler")
 
 DIGEST_MORNING = time(8, 0)
 DIGEST_EVENING = time(21, 0)
+
+# Развёртка правил недели в задачи. Ночью, до утренней сводки:
+# к 08:00 задачи на сегодня уже должны существовать.
+EXPAND_AT = time(3, 30)
+
+# Горизонт развёртки. Две недели дают запас: даже если бот простоит
+# несколько дней, при следующем запуске задачи на сегодня появятся.
+# Больше нет смысла — месячная сводка смотрит на 30 дней, но правило
+# не обязано быть видно так далеко вперёд, а отменять лишнее скучно.
+EXPAND_DAYS = 14
 
 # Вне этого окна бот молчит. Задача с напоминанием на 23:30 останется
 # в базе и попадёт в сводку, но ночного пинга не будет.
@@ -215,6 +226,26 @@ async def daypart_reminders(bot, chat_id: int, daypart_name: str,
     return len(tasks)
 
 
+async def expand_week_templates(bot=None, now: Optional[datetime] = None) -> int:
+    """
+    Разворачивает правила недели в задачи. Возвращает число созданных.
+
+    В чат ничего не пишет: человек узнаёт о задачах из сводки, а не из
+    служебного сообщения. Аргумент bot принимается только ради
+    однообразия с остальными заданиями.
+
+    Запускается ночью и ещё раз при старте бота. Второе важнее: если
+    процесс простоял сутки, к утренней сводке задачи на сегодня должны
+    появиться, не дожидаясь 03:30. Повторный вызов безвреден —
+    expand_templates() идемпотентна.
+    """
+    now = now or datetime.now(TZ)
+    created = await asyncio.to_thread(expand_templates, now.date(), EXPAND_DAYS)
+    if created:
+        log.info("развёртка правил: создано задач %d", created)
+    return created
+
+
 # ------------------------------------------------------------------
 # Регистрация в боте
 # ------------------------------------------------------------------
@@ -250,16 +281,25 @@ def register_jobs(app, chat_id: int) -> None:
     jq.run_repeating(lambda ctx: timed_reminders(ctx.bot, chat_id),
                      interval=POLL_INTERVAL, first=30, name="timed")
 
+    jq.run_daily(lambda ctx: expand_week_templates(ctx.bot),
+                 time=EXPAND_AT.replace(tzinfo=TZ), name="expand")
+
+    # Разово через 10 секунд после старта. Если бот простоял сутки,
+    # ждать 03:30 нельзя: задачи на сегодня нужны уже сейчас.
+    jq.run_once(lambda ctx: expand_week_templates(ctx.bot), when=10,
+                name="expand_now")
+
     for name, start in DAYPART_START.items():
         jq.run_daily(
             lambda ctx, n=name: daypart_reminders(ctx.bot, chat_id, n),
             time=start.replace(tzinfo=TZ), name=f"daypart_{name}")
 
     log.info("расписание: сводки %s и %s, проверка задач каждые %d сек, "
-             "ступени %s",
+             "ступени %s, развёртка правил в %s на %d дней",
              DIGEST_MORNING.strftime("%H:%M"), DIGEST_EVENING.strftime("%H:%M"),
              POLL_INTERVAL,
-             ", ".join(str(o) for o, _ in REMINDER_LADDER))
+             ", ".join(str(o) for o, _ in REMINDER_LADDER),
+             EXPAND_AT.strftime("%H:%M"), EXPAND_DAYS)
 
 
 # ------------------------------------------------------------------
@@ -271,7 +311,7 @@ async def _main() -> None:
 
     if len(sys.argv) < 2:
         sys.exit("Использование: python3 app/scheduler.py "
-                 "morning|evening|timed|daypart <утро|день|вечер>")
+                 "morning|evening|timed|expand|daypart <утро|день|вечер>")
 
     token = os.environ.get("TELEGRAM_TOKEN_DEV")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID_DEV")
@@ -289,6 +329,9 @@ async def _main() -> None:
     elif cmd == "timed":
         n = await timed_reminders(bot, chat_id)
         print(f"отправлено: {n}")
+    elif cmd == "expand":
+        n = await expand_week_templates()
+        print(f"создано задач: {n}")
     elif cmd == "daypart":
         dp = sys.argv[2] if len(sys.argv) > 2 else "evening"
         n = await daypart_reminders(bot, chat_id, dp)

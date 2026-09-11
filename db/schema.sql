@@ -54,7 +54,14 @@ CREATE TABLE task_templates (
     id             SERIAL PRIMARY KEY,
     title          TEXT        NOT NULL,
     assignee       assignee,                    -- NULL = дело дома
-    weekday        SMALLINT    NOT NULL,        -- 0 = понедельник, 6 = воскресенье
+
+    -- Набор дней, а не один день: «домашка ПН-ЧТ» это одно правило,
+    -- одна строка. При схеме «строка на каждый день» пауза и удаление
+    -- требовали бы четырёх действий, и надо было бы как-то понимать,
+    -- что эти четыре строки — одно целое.
+    -- 0 = понедельник, 6 = воскресенье.
+    weekdays       SMALLINT[]  NOT NULL,
+
     time_mode      time_mode   NOT NULL,
     time_start     TIME,
     time_end       TIME,
@@ -63,7 +70,10 @@ CREATE TABLE task_templates (
     active         BOOLEAN     NOT NULL DEFAULT TRUE, -- FALSE = на паузе, но не удалён
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT weekday_valid CHECK (weekday BETWEEN 0 AND 6)
+    CONSTRAINT weekdays_valid CHECK (
+        array_length(weekdays, 1) BETWEEN 1 AND 7
+        AND weekdays <@ ARRAY[0, 1, 2, 3, 4, 5, 6]::SMALLINT[]
+    )
 );
 
 
@@ -133,6 +143,16 @@ CREATE INDEX idx_tasks_backlog ON tasks (deadline)
 
 CREATE INDEX idx_tasks_assignee ON tasks (assignee, date)
     WHERE status = 'pending';
+
+-- Защита от дублей при развёртке правил. expand_templates() вызывается
+-- по расписанию и при старте бота, то есть одну и ту же дату увидит
+-- много раз — без индекса каждый запуск добавлял бы копии.
+--
+-- Индекс не частичный намеренно: у обычных задач template_id равен
+-- NULL, а NULL в уникальном индексе не конфликтует сам с собой.
+-- Зато ON CONFLICT (template_id, date) на полном индексе выводится
+-- однозначно, а с частичным Postgres требует повторять предикат.
+CREATE UNIQUE INDEX idx_tasks_template_once ON tasks (template_id, date);
 
 
 -- ------------------------------------------------------------

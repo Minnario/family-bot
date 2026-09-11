@@ -425,6 +425,138 @@ def deadlines_soon(today: date, days: int = 1) -> List[Dict[str, Any]]:
 
 
 # ------------------------------------------------------------------
+# Шаблоны недели
+# ------------------------------------------------------------------
+#
+# Правило живёт здесь, экземпляры — в tasks. Развязка нужна потому,
+# что одна строка не может быть одновременно правилом и экземпляром:
+# именно отсюда росли и галочка у ежедневных, закрывавшая привычку
+# навсегда, и разовость задач на перечисленные дни недели.
+#
+# Разворачивает правила в задачи expand_templates(). Она идемпотентна:
+# повторный запуск не создаёт дублей.
+
+
+def create_template(t: Dict[str, Any]) -> int:
+    """
+    Заводит правило недели и возвращает его id.
+
+    weekdays — список номеров дней, 0 = понедельник. Порядок внутри
+    списка не важен, здесь он приводится к возрастающему без повторов.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO task_templates
+                    (title, assignee, weekdays, time_mode,
+                     time_start, time_end, daypart, reminder_lead)
+                VALUES
+                    (%(title)s, %(assignee)s, %(weekdays)s::SMALLINT[],
+                     %(time_mode)s, %(time_start)s, %(time_end)s,
+                     %(daypart)s, %(reminder_lead)s)
+                RETURNING id
+            """, {
+                "title": t["title"],
+                "assignee": t.get("assignee"),
+                "weekdays": sorted(set(t["weekdays"])),
+                "time_mode": t.get("time_mode", "allday"),
+                "time_start": t.get("time_start"),
+                "time_end": t.get("time_end"),
+                "daypart": t.get("daypart"),
+                "reminder_lead": t.get("reminder_lead", 10),
+            })
+            return cur.fetchone()["id"]
+
+
+def list_templates(active_only: bool = True) -> List[Dict[str, Any]]:
+    """Правила недели. По умолчанию только действующие."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT id, title, assignee, weekdays, time_mode,
+                       time_start, time_end, daypart, reminder_lead,
+                       active, created_at
+                  FROM task_templates
+                 {"WHERE active" if active_only else ""}
+                 ORDER BY time_start NULLS LAST, id
+            """)
+            return cur.fetchall()
+
+
+def pause_template(template_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Снимает правило с развёртки, не удаляя его.
+
+    Уже созданные экземпляры остаются. Пауза означает «дальше не
+    создавай», а не «этих дней не было».
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE task_templates SET active = FALSE
+                 WHERE id = %s AND active
+                RETURNING id, title
+            """, (template_id,))
+            return cur.fetchone()
+
+
+def delete_template(template_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Удаляет правило целиком.
+
+    Экземпляры выживают: у tasks.template_id в схеме стоит
+    ON DELETE SET NULL, они теряют связь с правилом и становятся
+    обычными задачами. Иначе снос правила стёр бы историю.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                DELETE FROM task_templates WHERE id = %s
+                RETURNING id, title
+            """, (template_id,))
+            return cur.fetchone()
+
+
+def expand_templates(start: date, days: int = 14) -> int:
+    """
+    Разворачивает действующие правила в задачи на `days` дней вперёд,
+    начиная с `start`. Возвращает число созданных задач.
+
+    Одним запросом, а не циклом на Python: generate_series даёт все
+    даты окна, CROSS JOIN сводит их с правилами, ON CONFLICT гасит уже
+    созданное. Поэтому функцию можно звать сколько угодно раз —
+    лишнего не появится, и это главное её свойство: развёртка идёт
+    и по расписанию, и при старте бота.
+
+    EXTRACT(ISODOW) даёт 1 для понедельника и 7 для воскресенья,
+    поэтому минус один переводит в нашу нумерацию с нуля.
+
+    carry_over = FALSE у экземпляров: не сделал в свой день — сгорело,
+    переносить нечего, на следующей неделе будет свой экземпляр.
+    """
+    until = start + timedelta(days=days - 1)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tasks
+                    (title, assignee, list, template_id, date,
+                     time_mode, time_start, time_end, daypart,
+                     reminder_lead, carry_over)
+                SELECT tt.title, tt.assignee, 'scheduled', tt.id, d::date,
+                       tt.time_mode, tt.time_start, tt.time_end, tt.daypart,
+                       tt.reminder_lead, FALSE
+                  FROM task_templates tt
+                  CROSS JOIN generate_series(%(start)s::date,
+                                             %(until)s::date,
+                                             INTERVAL '1 day') AS d
+                 WHERE tt.active
+                   AND (EXTRACT(ISODOW FROM d)::int - 1) = ANY(tt.weekdays)
+                ON CONFLICT (template_id, date) DO NOTHING
+            """, {"start": start, "until": until})
+            return cur.rowcount
+
+
+# ------------------------------------------------------------------
 # Дедупликация напоминаний
 # ------------------------------------------------------------------
 
@@ -671,5 +803,46 @@ if __name__ == "__main__":
     )
     print(f"id={lid}")
 
+    # ---- Шаблоны недели ----
+    print("\nПравило на понедельник-четверг...", end=" ")
+    tpl = create_template({
+        "title": "тестовая домашка",
+        "assignee": "seva",
+        "weekdays": [3, 0, 1, 2, 0],     # с повтором и не по порядку
+        "time_mode": "exact",
+        "time_start": "17:00",
+        "reminder_lead": 10,
+    })
+    print(f"id={tpl}")
+
+    saved = [t for t in list_templates() if t["id"] == tpl][0]
+    print(f"  дни в базе: {saved['weekdays']}  (ждали [0, 1, 2, 3])")
+
+    monday = date(2026, 9, 14)
+    print("Развёртка на 14 дней...", end=" ")
+    first = expand_templates(monday, 14)
+    print(f"создано {first}  (ждали 8: четыре дня × две недели)")
+
+    # Главное свойство: повторный запуск не должен создать ни одной
+    # задачи. На нём держится и ночное задание, и развёртка при старте.
+    print("Повторная развёртка того же окна...", end=" ")
+    again = expand_templates(monday, 14)
+    print(f"создано {again}  (ждали 0)")
+
+    print("Сдвиг окна на неделю...", end=" ")
+    shifted = expand_templates(monday + timedelta(days=7), 14)
+    print(f"создано {shifted}  (ждали 4: только новая неделя)")
+
+    print("Пауза правила...", end=" ")
+    print("ок" if pause_template(tpl) else "ПРОВАЛ")
+
+    print("Развёртка после паузы...", end=" ")
+    paused = expand_templates(monday + timedelta(days=21), 14)
+    print(f"создано {paused}  (ждали 0)")
+
+    print("Удаление правила...", end=" ")
+    print("ок" if delete_template(tpl) else "ПРОВАЛ")
+
     print("\nГотово. Удалить тестовые данные:")
-    print("  psql -d familybot -c 'TRUNCATE tasks, message_log RESTART IDENTITY CASCADE;'")
+    print("  psql -d familybot -c 'TRUNCATE tasks, task_templates, "
+          "message_log RESTART IDENTITY CASCADE;'")
