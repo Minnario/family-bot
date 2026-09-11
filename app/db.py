@@ -382,16 +382,28 @@ def tasks_backlog(today: date) -> List[Dict[str, Any]]:
 
 
 def tasks_daily() -> List[Dict[str, Any]]:
-    """Ежедневные дела — для галочек в вечерней сверке."""
+    """
+    Ежедневные дела — для сводок и списка привычек.
+
+    Поля времени добавлены не для напоминаний (те берёт
+    tasks_timed_today), а для вёрстки: в сводке у каждой привычки
+    должно стоять своё время, иначе «зарядка» и «чистить зубы»
+    выглядят одинаково безвременными.
+
+    Порядок по времени, безвременные в конец: NULLS LAST. Сортировка
+    по id давала случайный порядок — привычка, заведённая раньше,
+    оказывалась выше утренней, хотя делается вечером.
+    """
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(f"""
-                SELECT t.id, t.title, t.assignee, t.status
+                SELECT t.id, t.title, t.assignee, t.status, t.list,
+                       t.time_mode, t.time_start, t.time_end, t.daypart
                   FROM tasks t
                  WHERE t.list = 'daily'
                    AND t.status = 'pending'
                    AND {_NOT_PAUSED}
-                 ORDER BY t.id
+                 ORDER BY t.time_start NULLS LAST, t.daypart NULLS LAST, t.id
             """)
             return cur.fetchall()
 

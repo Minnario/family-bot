@@ -244,6 +244,19 @@ def postpone_options(task_id: int,
 # Сводки
 # ------------------------------------------------------------------
 
+def daily_line(task: Dict[str, Any]) -> str:
+    """
+    Одна строка ежедневного дела: время, имя, название.
+
+    Раньше все привычки склеивались в одну строку через «·» и без
+    времени вовсе. Отличить «зарядка в 07:00» от «чистить зубы вечером»
+    было невозможно — в сводке они выглядели одинаково.
+    """
+    tl = time_label(task)
+    return (f"  {tl + '  ' if tl else ''}"
+            f"{name_prefix(task)}{escape(task['title'])}")
+
+
 def build_morning(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     """Утренняя сводка. Возвращает готовый текст и кнопки."""
     today_tasks = tasks_for_date(today)
@@ -273,9 +286,8 @@ def build_morning(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
                          f"({day_label(t['date'], today)})")
 
     if daily:
-        lines.append("")
-        lines.append("☑️ Ежедневно: " + " · ".join(
-            f"{name_prefix(t, ' ')}{escape(t['title'])}" for t in daily))
+        lines += ["", "☑️ <b>Ежедневно:</b>"]
+        lines += [daily_line(t) for t in daily]
 
     return "\n".join(lines), task_buttons(today_tasks)
 
@@ -295,9 +307,8 @@ def build_evening(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
         lines.append("Всё на сегодня закрыто. ✅")
 
     if daily:
-        lines.append("")
-        lines.append("Ежедневные: " + " · ".join(
-            f"{name_prefix(t, ' ')}{escape(t['title'])}" for t in daily))
+        lines += ["", "<b>Ежедневные:</b>"]
+        lines += [daily_line(t) for t in daily]
 
     if backlog:
         lines.append("")
@@ -451,10 +462,7 @@ def build_all(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
 
     if daily:
         lines += ["", "🔁 <b>Ежедневные:</b>"]
-        for t in daily:
-            tl = time_label(t)
-            lines.append(f"  {tl + '  ' if tl else ''}"
-                         f"{name_prefix(t)}{escape(t['title'])}")
+        lines += [daily_line(t) for t in daily]
 
     return "\n".join(lines), None
 
@@ -473,7 +481,7 @@ def build_daily() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
                 None)
 
     lines = ["🔁 <b>Ежедневные дела</b>", ""]
-    lines += [f"  {name_prefix(t)}{escape(t['title'])}" for t in daily]
+    lines += [daily_line(t) for t in daily]
     lines.append("")
     lines.append("<i>Кнопка убирает дело насовсем.</i>")
 
