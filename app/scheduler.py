@@ -27,8 +27,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from db import (expand_templates, record_reminder, reminder_sent,
-                tasks_daypart_now, tasks_timed_today)
+from db import (EXPAND_DAYS, expand_templates, record_reminder,
+                reminder_sent, tasks_daypart_now, tasks_timed_today)
 from ui import (DAYPART_HEADING, build_evening, build_morning, build_reminder,
                 name_prefix)
 from parser import TZ
@@ -49,11 +49,8 @@ DIGEST_EVENING = time(21, 0)
 # к 08:00 задачи на сегодня уже должны существовать.
 EXPAND_AT = time(3, 30)
 
-# Горизонт развёртки. Две недели дают запас: даже если бот простоит
-# несколько дней, при следующем запуске задачи на сегодня появятся.
-# Больше нет смысла — месячная сводка смотрит на 30 дней, но правило
-# не обязано быть видно так далеко вперёд, а отменять лишнее скучно.
-EXPAND_DAYS = 14
+# Горизонт развёртки EXPAND_DAYS берётся из db.py: разворачивает не
+# только это задание, но и handle.py при создании правила.
 
 # Вне этого окна бот молчит. Задача с напоминанием на 23:30 останется
 # в базе и попадёт в сводку, но ночного пинга не будет.

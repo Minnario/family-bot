@@ -517,7 +517,14 @@ def delete_template(template_id: int) -> Optional[Dict[str, Any]]:
             return cur.fetchone()
 
 
-def expand_templates(start: date, days: int = 14) -> int:
+# Горизонт развёртки. Две недели дают запас: даже если бот простоит
+# несколько дней, при следующем запуске задачи на сегодня появятся.
+# Значение живёт здесь, а не в планировщике, потому что разворачивает
+# ещё и handle.py — сразу после того, как человек завёл правило.
+EXPAND_DAYS = 14
+
+
+def expand_templates(start: date, days: int = EXPAND_DAYS) -> int:
     """
     Разворачивает действующие правила в задачи на `days` дней вперёд,
     начиная с `start`. Возвращает число созданных задач.
