@@ -689,6 +689,70 @@ def expand_templates(start: date, days: int = EXPAND_DAYS) -> int:
 
 
 # ------------------------------------------------------------------
+# Отметки привычек
+# ------------------------------------------------------------------
+#
+# Мотиватор, а не учёт. Ни статус привычки, ни напоминания, ни сводки
+# сюда не смотрят: единственный потребитель — список «ежедневные».
+#
+# Раньше отметка жила в клавиатуре сообщения и терялась при каждой
+# новой команде. Таблица нужна ровно для того, чтобы не терялась.
+
+
+def marked_habits(day: date) -> frozenset:
+    """Id привычек, отмеченных в этот день."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT task_id FROM habit_marks WHERE mark_date = %s", (day,))
+            return frozenset(r["task_id"] for r in cur.fetchall())
+
+
+def toggle_habit_mark(task_id: int, day: date) -> bool:
+    """
+    Ставит или снимает отметку. Возвращает True, если отметка теперь
+    стоит.
+
+    Переключатель, а не одностороннее действие: нажал по ошибке —
+    нажал снова и снял. Иначе пришлось бы ждать следующего дня.
+
+    Два запроса в одной транзакции, а не ON CONFLICT: нам нужно знать,
+    в какую сторону сработало, чтобы показать человеку правильный ответ.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                DELETE FROM habit_marks
+                 WHERE task_id = %s AND mark_date = %s
+                RETURNING task_id
+            """, (task_id, day))
+            if cur.fetchone():
+                return False
+
+            cur.execute("""
+                INSERT INTO habit_marks (task_id, mark_date)
+                VALUES (%s, %s)
+                ON CONFLICT DO NOTHING
+            """, (task_id, day))
+            return True
+
+
+def purge_habit_marks(before: date) -> int:
+    """
+    Удаляет отметки старше даты. Возвращает число удалённых.
+
+    Отметки копятся по строке на привычку в день: четыре привычки дают
+    полторы тысячи строк в год. Немного, но и смысла в них нет —
+    статистику по ним никто не считает, это осознанное решение.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM habit_marks WHERE mark_date < %s",
+                        (before,))
+            return cur.rowcount
+
+
+# ------------------------------------------------------------------
 # Дедупликация напоминаний
 # ------------------------------------------------------------------
 
@@ -974,6 +1038,36 @@ if __name__ == "__main__":
 
     print("Удаление правила...", end=" ")
     print("ок" if delete_template(tpl) else "ПРОВАЛ")
+
+    # ---- Отметки привычек ----
+    print("\nПривычка...", end=" ")
+    habit = create_task({
+        "title": "тестовая зарядка", "assignee": "vova", "list": "daily",
+        "date": None, "time_mode": "exact", "time_start": "07:00",
+    })
+    print(f"id={habit}")
+
+    print("Отметка...", end=" ")
+    on = toggle_habit_mark(habit, date.today())
+    print(f"поставлена={on}  (ждали True)")
+    print(f"  отмечено сегодня: {sorted(marked_habits(date.today()))}"
+          f"  (ждали [{habit}])")
+
+    print("Повторное нажатие...", end=" ")
+    off = toggle_habit_mark(habit, date.today())
+    print(f"поставлена={off}  (ждали False)")
+    print(f"  отмечено сегодня: {sorted(marked_habits(date.today()))}"
+          f"  (ждали [])")
+
+    print("Отметка на вчера не мешает сегодняшней...", end=" ")
+    toggle_habit_mark(habit, date.today() - timedelta(days=1))
+    toggle_habit_mark(habit, date.today())
+    y = sorted(marked_habits(date.today() - timedelta(days=1)))
+    t = sorted(marked_habits(date.today()))
+    print(f"вчера={y}, сегодня={t}  (ждали по одной в каждом дне)")
+
+    print("Чистка старых отметок...", end=" ")
+    print(f"удалено {purge_habit_marks(date.today())}  (ждали 1)")
 
     print("\nГотово. Удалить тестовые данные:")
     print("  psql -d familybot -c 'TRUNCATE tasks, task_templates, "

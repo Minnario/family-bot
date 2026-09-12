@@ -29,7 +29,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from db import (cancel_task, complete_task, delete_template,
                 drop_future_instances, expand_templates, get_task,
-                pause_template, reschedule_task, resume_template)
+                marked_habits, pause_template, reschedule_task,
+                resume_template, toggle_habit_mark)
 from handle import handle_message, try_command
 from parser import TZ
 from scheduler import register_jobs
@@ -219,31 +220,6 @@ async def _answer(query, text: str = "") -> None:
         pass
 
 
-def _marked_habits(query) -> frozenset:
-    """
-    Id привычек, отмеченных в этом сообщении.
-
-    Читается из подписей кнопок: отмеченная нарисована с ✅ и пустым
-    действием, поэтому её id берётся из соседней кнопки удаления в том
-    же ряду. Хранить набор негде — сообщение и есть хранилище.
-
-    Так отметки переживают нажатие следующей галочки: клавиатура
-    собирается заново со всеми уже проставленными.
-    """
-    marked = set()
-    kb = query.message.reply_markup
-    if not kb:
-        return frozenset()
-    for row in kb.inline_keyboard:
-        if not row or not row[0].text.startswith("✅"):
-            continue
-        for btn in row:
-            data = btn.callback_data or ""
-            if data.startswith("cancel:"):
-                marked.add(int(data.split(":", 1)[1]))
-    return frozenset(marked)
-
-
 async def _rerender(query, chat_id: int) -> None:
     """
     Перерисовывает сообщение, под которым нажали кнопку.
@@ -274,9 +250,7 @@ async def _rerender(query, chat_id: int) -> None:
     elif head.startswith("📋"):
         text, kb = build_rules()
     elif head.startswith("🔁"):
-        # Отметки переносим в новую клавиатуру: человек нажал галочку,
-        # потом удалил другую привычку — терять первое нажатие обидно.
-        text, kb = build_daily(_marked_habits(query))
+        text, kb = build_daily(marked_habits(today))
     else:
         # Точечное напоминание или пинг на часть дня: задача закрыта,
         # перерисовывать нечего — убираем кнопки и помечаем сообщение.
@@ -375,14 +349,16 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await _rerender(query, query.message.chat_id)
 
         elif action == "hmark":
-            # Отметка привычки. В базу не пишем ничего: это мотиватор,
-            # а не учёт. Меняется только клавиатура — подробности
-            # в ui.daily_buttons().
-            marked = _marked_habits(query) | {int(rest)}
+            # Отметка привычки. Пишется в habit_marks и больше никуда:
+            # статус привычки не меняется, напоминания и сводки её
+            # не видят. Подробности в миграции 003.
+            today = datetime.now(TZ).date()
+            on = await asyncio.to_thread(toggle_habit_mark, int(rest), today)
+            marked = await asyncio.to_thread(marked_habits, today)
             text, kb = await asyncio.to_thread(build_daily, marked)
             await _safe_edit(query.edit_message_text(
                 text, parse_mode="HTML", reply_markup=kb))
-            await _answer(query, "Отмечено")
+            await _answer(query, "Отмечено" if on else "Снято")
 
         # --- правила недели ---
         #
