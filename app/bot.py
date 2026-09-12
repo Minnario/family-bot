@@ -27,13 +27,15 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from db import cancel_task, complete_task, get_task, reschedule_task
+from db import (cancel_task, complete_task, delete_template,
+                drop_future_instances, expand_templates, get_task,
+                pause_template, reschedule_task, resume_template)
 from handle import handle_message, try_command
 from parser import TZ
 from scheduler import register_jobs
 from ui import (build_all, build_backlog, build_daily, build_evening,
-                build_help, build_month, build_morning, build_week,
-                clarify_buttons, postpone_options)
+                build_help, build_month, build_morning, build_rules,
+                build_week, clarify_buttons, postpone_options)
 
 ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
@@ -244,6 +246,8 @@ async def _rerender(query, chat_id: int) -> None:
         text, kb = build_all(today)
     elif head.startswith("📌"):
         text, kb = build_backlog(today)
+    elif head.startswith("📋"):
+        text, kb = build_rules()
     elif head.startswith("🔁"):
         text, kb = build_daily()
     else:
@@ -341,6 +345,40 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         elif action == "cancel":
             task = await asyncio.to_thread(cancel_task, int(rest))
             await query.answer("Отменено" if task else "Задача не найдена")
+            await _rerender(query, query.message.chat_id)
+
+        # --- правила недели ---
+        #
+        # Пауза и удаление обе убирают незакрытые экземпляры от сегодня:
+        # иначе правило перестало действовать, а задачи на эту неделю
+        # остались бы висеть, и человек не понял бы, почему.
+        #
+        # Прошедшие экземпляры не трогаются ни в одном случае. Это
+        # история: «домашка была в среду и сделана» остаётся правдой,
+        # даже если расписание потом отменили.
+        elif action == "tpl_off":
+            tpl = await asyncio.to_thread(pause_template, int(rest))
+            if tpl:
+                await asyncio.to_thread(drop_future_instances, int(rest),
+                                        datetime.now(TZ).date())
+            await query.answer("На паузе" if tpl else "Уже на паузе")
+            await _rerender(query, query.message.chat_id)
+
+        elif action == "tpl_on":
+            tpl = await asyncio.to_thread(resume_template, int(rest))
+            # Задачи создаст развёртка при ближайшем прогоне; ждать
+            # 03:30 незачем, человек только что вернул правило.
+            if tpl:
+                await asyncio.to_thread(expand_templates,
+                                        datetime.now(TZ).date())
+            await query.answer("Вернул" if tpl else "Уже действует")
+            await _rerender(query, query.message.chat_id)
+
+        elif action == "tpl_del":
+            await asyncio.to_thread(drop_future_instances, int(rest),
+                                    datetime.now(TZ).date())
+            tpl = await asyncio.to_thread(delete_template, int(rest))
+            await query.answer("Удалено" if tpl else "Правило не найдено")
             await _rerender(query, query.message.chat_id)
 
         else:

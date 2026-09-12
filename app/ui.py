@@ -22,8 +22,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from db import (tasks_backlog, tasks_daily, tasks_for_date, tasks_for_range,
-                tasks_overdue, deadlines_soon)
+from db import (list_templates, tasks_backlog, tasks_daily, tasks_for_date,
+                tasks_for_range, tasks_overdue, deadlines_soon)
 
 ASSIGNEE_RU = {
     "seva": "Сева", "gleb": "Глеб", "kamilla": "Камилла",
@@ -465,6 +465,73 @@ def build_all(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
         lines += [daily_line(t) for t in daily]
 
     return "\n".join(lines), None
+
+
+def rule_label(tpl: Dict[str, Any]) -> str:
+    """
+    Правило одной строкой: «Сева — домашка, ПН СР ЧТ 17:00».
+
+    Дни вместо даты — у правила её нет. Время показывается так же,
+    как у задач, через time_label().
+    """
+    when = " ".join(x for x in (
+        " ".join(WEEKDAYS_SHORT[d] for d in tpl["weekdays"]),
+        time_label(tpl)) if x)
+    return f"{name_prefix(tpl)}{escape(tpl['title'])}, {when}"
+
+
+def rule_buttons(rules: List[Dict[str, Any]]
+                 ) -> Optional[InlineKeyboardMarkup]:
+    """
+    По ряду на правило: пауза или возврат плюс удаление.
+
+    Пауза нужна отдельно от удаления: каникулы и отпуск — не повод
+    терять расписание, которое потом придётся набирать заново.
+
+    Значок слева зависит от состояния, поэтому кнопка одна и та же
+    по месту, но разная по действию: ⏸ у действующего правила,
+    ▶️ у приостановленного.
+    """
+    if not rules or len(rules) > 8:
+        return None
+    rows = []
+    for r in rules:
+        label = rule_label(r)
+        if len(label) > 28:
+            label = label[:27] + "…"
+        toggle = ("⏸", f"tpl_off:{r['id']}") if r["active"] \
+            else ("▶️", f"tpl_on:{r['id']}")
+        rows.append([
+            InlineKeyboardButton(f"{toggle[0]} {label}", callback_data=toggle[1]),
+            InlineKeyboardButton("🗑", callback_data=f"tpl_del:{r['id']}"),
+        ])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_rules() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """
+    Список правил недели с кнопками управления.
+
+    Показываются и приостановленные: иначе правило на паузе исчезает
+    из вида, и вернуть его можно только через базу.
+    """
+    rules = list_templates(active_only=False)
+    if not rules:
+        return ("📋 <b>Правила недели</b>\n\n"
+                "Пока ни одного. Правило заводится фразой: назови три дня "
+                "и больше или скажи «каждый вторник».", None)
+
+    active = [r for r in rules if r["active"]]
+    paused = [r for r in rules if not r["active"]]
+
+    lines = ["📋 <b>Правила недели</b>", ""]
+    lines += [f"  {rule_label(r)}" for r in active]
+    if paused:
+        lines += ["", "<b>На паузе:</b>"]
+        lines += [f"  {rule_label(r)}" for r in paused]
+    lines += ["", "<i>⏸ пауза · ▶️ вернуть · 🗑 удалить совсем</i>"]
+
+    return "\n".join(lines), rule_buttons(active + paused)
 
 
 def build_daily() -> Tuple[str, Optional[InlineKeyboardMarkup]]:

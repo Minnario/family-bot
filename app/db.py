@@ -483,12 +483,110 @@ def list_templates(active_only: bool = True) -> List[Dict[str, Any]]:
             return cur.fetchall()
 
 
+def find_active_template(title: str,
+                         assignee: Optional[str]) -> Optional[Dict[str, Any]]:
+    """
+    Действующее правило с тем же названием и человеком, или None.
+
+    Нужно против дублей: повтор фразы «домашка ПН СР ЧТ Севе» не должен
+    заводить второе такое же расписание — иначе пойдут двойные
+    напоминания, и понять причину из чата будет нельзя.
+
+    Сравнение по паре название плюс человек, потому что именно её
+    называет человек. Время и дни при повторе могут отличаться — это
+    и есть изменение расписания, а не новое правило.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, title, assignee, weekdays, time_mode,
+                       time_start, time_end, daypart, reminder_lead
+                  FROM task_templates
+                 WHERE active
+                   AND title = %s
+                   AND assignee IS NOT DISTINCT FROM %s
+                 ORDER BY id
+                 LIMIT 1
+            """, (title, assignee))
+            return cur.fetchone()
+
+
+def update_template(template_id: int, t: Dict[str, Any]
+                    ) -> Optional[Dict[str, Any]]:
+    """
+    Меняет дни и время правила, не создавая новое.
+
+    Правка на месте, а не удаление с пересозданием: у уже прошедших
+    задач сохраняется связь с правилом, то есть история не рвётся.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE task_templates
+                   SET weekdays = %(weekdays)s::SMALLINT[],
+                       time_mode = %(time_mode)s,
+                       time_start = %(time_start)s,
+                       time_end = %(time_end)s,
+                       daypart = %(daypart)s,
+                       reminder_lead = %(reminder_lead)s
+                 WHERE id = %(id)s
+                RETURNING id, title, assignee, weekdays
+            """, {
+                "id": template_id,
+                "weekdays": sorted(set(t["weekdays"])),
+                "time_mode": t.get("time_mode", "allday"),
+                "time_start": t.get("time_start"),
+                "time_end": t.get("time_end"),
+                "daypart": t.get("daypart"),
+                "reminder_lead": t.get("reminder_lead", 10),
+            })
+            return cur.fetchone()
+
+
+def drop_future_instances(template_id: int, since: date) -> int:
+    """
+    Удаляет незакрытые экземпляры правила от даты `since` и дальше.
+    Возвращает число удалённых.
+
+    Вызывается после правки правила: старые дни и время больше
+    не действуют, и развёртка создаст новые. Без этого «домашка
+    ПН СР ЧТ» после смены на «ПН ВТ» оставила бы четверги висеть.
+
+    Закрытые и отменённые не трогаются: это история, а не план.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                DELETE FROM tasks
+                 WHERE template_id = %s
+                   AND date >= %s
+                   AND status = 'pending'
+            """, (template_id, since))
+            return cur.rowcount
+
+
+def resume_template(template_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Снимает правило с паузы. Экземпляры создаст следующая развёртка.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE task_templates SET active = TRUE
+                 WHERE id = %s AND NOT active
+                RETURNING id, title
+            """, (template_id,))
+            return cur.fetchone()
+
+
 def pause_template(template_id: int) -> Optional[Dict[str, Any]]:
     """
     Снимает правило с развёртки, не удаляя его.
 
-    Уже созданные экземпляры остаются. Пауза означает «дальше не
-    создавай», а не «этих дней не было».
+    Уже созданные экземпляры остаются — их убирает отдельным вызовом
+    drop_future_instances(), если нужно. Разделено намеренно: пауза
+    правила и уборка плана на эту неделю — разные решения, и в разных
+    местах нужны по отдельности.
     """
     with connect() as conn:
         with conn.cursor() as cur:

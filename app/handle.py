@@ -21,8 +21,9 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).parent))
 
 from db import (cancel_task, complete_task, create_tasks, create_template,
-                expand_templates, get_task, list_open_tasks, log_message,
-                reschedule_task)
+                drop_future_instances, expand_templates, find_active_template,
+                get_task, list_open_tasks, log_message, reschedule_task,
+                update_template)
 from parser import ParseError, parse, TZ
 
 # Логгер модуля. Настройку уровня и формата делает bot.py, поэтому
@@ -34,7 +35,7 @@ log = logging.getLogger("handle")
 # что однажды они разъедутся.
 from ui import (ASSIGNEE_RU, DAYPART_RU, WEEKDAYS_SHORT, day_label,
                 build_all, build_backlog, build_daily, build_help,
-                build_month, build_morning, build_week)
+                build_month, build_morning, build_rules, build_week)
 
 # Тестовый chat_id для запусков из командной строки.
 # У настоящих групп Telegram он отрицательный и приходит из апдейта.
@@ -165,6 +166,15 @@ COMMANDS = {
     "что на месяц":       "month",
     "задачи на месяц":    "month",
     "дела на месяц":      "month",
+    # правила недели
+    "правила":            "rules",
+    "правило":            "rules",
+    "мои правила":        "rules",
+    "правила недели":     "rules",
+    "расписание":         "rules",
+    "расписания":         "rules",
+    "расписание недели":  "rules",
+    "повторяющиеся":      "rules",
     # всё сразу: месяц по дням + отдельные дела + ежедневные
     "сводка вся":         "all",
     "сводка общая":       "all",
@@ -254,6 +264,8 @@ def _run_command(kind: str, today: date) -> Reply:
         text, kb = build_month(today)
     elif kind == "all":
         text, kb = build_all(today)
+    elif kind == "rules":
+        text, kb = build_rules()
     elif kind == "backlog":
         text, kb = build_backlog(today)
     elif kind == "daily":
@@ -624,9 +636,10 @@ def _create_rules(tasks: List[Dict[str, Any]], weekdays: List[int],
     dated = _rule_subjects([t for t in tasks if t.get("date")])
     plain = [t for t in tasks if not t.get("date")]
 
+    verbs = []
     try:
         for t in dated:
-            create_template({
+            fields = {
                 "title": t["title"],
                 "assignee": t.get("assignee"),
                 "weekdays": weekdays,
@@ -635,16 +648,32 @@ def _create_rules(tasks: List[Dict[str, Any]], weekdays: List[int],
                 "time_end": t.get("time_end"),
                 "daypart": t.get("daypart"),
                 "reminder_lead": t.get("reminder_lead", 10),
-            })
+            }
+            # Повтор фразы не должен заводить второе такое же расписание:
+            # пошли бы двойные напоминания, а причину из чата не увидеть.
+            # Заодно это единственный способ изменить правило словами —
+            # «домашка теперь ПН ВТ СР» правит существующее.
+            found = find_active_template(t["title"], t.get("assignee"))
+            if found:
+                update_template(found["id"], fields)
+                # Старые дни и время больше не действуют. Незакрытые
+                # экземпляры от сегодня убираем, развёртка создаст новые.
+                drop_future_instances(found["id"], today)
+                verbs.append("Обновил")
+            else:
+                create_template(fields)
+                verbs.append("Принял")
         created = expand_templates(today)
         if plain:
             create_tasks(plain)
     except Exception as exc:
         return Reply(f"Не смог записать: {exc}", None)
 
-    log.info("правил заведено: %d, задач развёрнуто: %d", len(dated), created)
+    log.info("правил: %s, задач развёрнуто: %d",
+             ", ".join(verbs).lower() or "нет", created)
 
-    lines = [f"Принял: {_format_rule(t, weekdays)}" for t in dated]
+    lines = [f"{v}: {_format_rule(t, weekdays)}"
+             for v, t in zip(verbs, dated)]
     lines += [f"Принял: {format_task(t, today)}" for t in plain]
     return Reply("\n".join(lines), None)
 
