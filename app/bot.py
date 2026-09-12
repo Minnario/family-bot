@@ -219,6 +219,31 @@ async def _answer(query, text: str = "") -> None:
         pass
 
 
+def _marked_habits(query) -> frozenset:
+    """
+    Id привычек, отмеченных в этом сообщении.
+
+    Читается из подписей кнопок: отмеченная нарисована с ✅ и пустым
+    действием, поэтому её id берётся из соседней кнопки удаления в том
+    же ряду. Хранить набор негде — сообщение и есть хранилище.
+
+    Так отметки переживают нажатие следующей галочки: клавиатура
+    собирается заново со всеми уже проставленными.
+    """
+    marked = set()
+    kb = query.message.reply_markup
+    if not kb:
+        return frozenset()
+    for row in kb.inline_keyboard:
+        if not row or not row[0].text.startswith("✅"):
+            continue
+        for btn in row:
+            data = btn.callback_data or ""
+            if data.startswith("cancel:"):
+                marked.add(int(data.split(":", 1)[1]))
+    return frozenset(marked)
+
+
 async def _rerender(query, chat_id: int) -> None:
     """
     Перерисовывает сообщение, под которым нажали кнопку.
@@ -249,7 +274,9 @@ async def _rerender(query, chat_id: int) -> None:
     elif head.startswith("📋"):
         text, kb = build_rules()
     elif head.startswith("🔁"):
-        text, kb = build_daily()
+        # Отметки переносим в новую клавиатуру: человек нажал галочку,
+        # потом удалил другую привычку — терять первое нажатие обидно.
+        text, kb = build_daily(_marked_habits(query))
     else:
         # Точечное напоминание или пинг на часть дня: задача закрыта,
         # перерисовывать нечего — убираем кнопки и помечаем сообщение.
@@ -346,6 +373,16 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             task = await asyncio.to_thread(cancel_task, int(rest))
             await query.answer("Отменено" if task else "Задача не найдена")
             await _rerender(query, query.message.chat_id)
+
+        elif action == "hmark":
+            # Отметка привычки. В базу не пишем ничего: это мотиватор,
+            # а не учёт. Меняется только клавиатура — подробности
+            # в ui.daily_buttons().
+            marked = _marked_habits(query) | {int(rest)}
+            text, kb = await asyncio.to_thread(build_daily, marked)
+            await _safe_edit(query.edit_message_text(
+                text, parse_mode="HTML", reply_markup=kb))
+            await _answer(query, "Отмечено")
 
         # --- правила недели ---
         #

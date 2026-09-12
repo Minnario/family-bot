@@ -174,26 +174,42 @@ def period_buttons(tasks: List[Dict[str, Any]],
     return InlineKeyboardMarkup(rows) if rows else None
 
 
-def daily_buttons(tasks: List[Dict[str, Any]]) -> Optional[InlineKeyboardMarkup]:
+def daily_buttons(tasks: List[Dict[str, Any]],
+                  marked: frozenset = frozenset()
+                  ) -> Optional[InlineKeyboardMarkup]:
     """
-    Только отмена. Галочки для ежедневных нет намеренно.
+    Отметка «сделал сегодня» и удаление привычки.
 
-    complete_task() ставит статус done навсегда, а механизма ежедневного
-    сброса в проекте пока нет: одна строка в tasks служит и правилом,
-    и экземпляром. Галочка здесь означала бы «удалить привычку»,
-    а не «сделал сегодня» — до появления отметок по дням её быть не должно.
+    Отметка ничего не меняет в базе. Это мотиватор: нажал и видишь
+    галочку. Ни статуса, ни истории, ни влияния на просрочку — привычка
+    остаётся pending и придёт завтра как обычно.
 
-    Переноса тоже нет: ежедневные не переносятся по решению из README.
+    Поэтому состояние живёт в самой клавиатуре, а не в tasks: id
+    отмеченных приходят в `marked`, и их кнопки рисуются с ✅ и пустым
+    действием. При следующем нажатии bot.py собирает набор заново из
+    текущих подписей — хранить нигде не нужно.
+
+    Цена решения: отметки живут до перерисовки сообщения. Закрыл задачу
+    из той же сводки — текст пересобрался из базы, галочки сбросились.
+    Иначе пришлось бы писать в базу, то есть делать то, от чего
+    отказались сознательно.
+
+    Переноса у привычек нет: «перенести зарядку на завтра» ничего
+    не значит, завтрашняя всё равно придёт.
     """
     if not tasks or len(tasks) > 8:
         return None
     rows = []
     for t in tasks:
         label = f"{name_prefix(t, ' · ')}{t['title']}"
-        if len(label) > 28:
-            label = label[:27] + "…"
+        if len(label) > 26:
+            label = label[:25] + "…"
+        done = t["id"] in marked
         rows.append([
-            InlineKeyboardButton(f"🗑 {label}", callback_data=f"cancel:{t['id']}")
+            InlineKeyboardButton(
+                f"{'✅' if done else '☐'} {label}",
+                callback_data="noop" if done else f"hmark:{t['id']}"),
+            InlineKeyboardButton("🗑", callback_data=f"cancel:{t['id']}"),
         ])
     return InlineKeyboardMarkup(rows)
 
@@ -534,11 +550,14 @@ def build_rules() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     return "\n".join(lines), rule_buttons(active + paused)
 
 
-def build_daily() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+def build_daily(marked: frozenset = frozenset()
+                ) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     """
-    Ежедневные дела. Кнопка одна — убрать привычку, когда стала не нужна.
+    Ежедневные дела с отметками «сделал сегодня».
 
-    Аргумент today не нужен: у ежедневных нет даты.
+    Аргумент today не нужен: у ежедневных нет даты. А `marked` нужен,
+    чтобы перерисовка сохранила уже нажатые галочки — подробности
+    в daily_buttons().
     """
     daily = tasks_daily()
 
@@ -550,9 +569,9 @@ def build_daily() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     lines = ["🔁 <b>Ежедневные дела</b>", ""]
     lines += [daily_line(t) for t in daily]
     lines.append("")
-    lines.append("<i>Кнопка убирает дело насовсем.</i>")
+    lines.append("<i>☐ отметить сделанное · 🗑 убрать привычку насовсем</i>")
 
-    return "\n".join(lines), daily_buttons(daily)
+    return "\n".join(lines), daily_buttons(daily, marked)
 
 
 def build_help() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
