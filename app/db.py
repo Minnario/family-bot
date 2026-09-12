@@ -221,6 +221,33 @@ def tasks_for_date(day: date) -> List[Dict[str, Any]]:
             return cur.fetchall()
 
 
+def tasks_beyond(after: date) -> List[Dict[str, Any]]:
+    """
+    Незакрытые задачи с датой позже `after`. Всё, что не попало
+    в сводки из-за их горизонта.
+
+    Сводки смотрят на 7 и 30 дней вперёд, поэтому задача на декабрь
+    не видна нигде до самого декабря: записал и проверить нельзя.
+    Через месяц человек не помнит, записывал ли, и записывает заново —
+    отсюда дубли.
+
+    Потолка по датам нет намеренно: смысл выборки в том, чтобы
+    показать всё, что есть, включая задачу на следующий год.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT t.id, t.title, t.assignee, t.date, t.time_mode,
+                       t.time_start, t.time_end, t.daypart
+                  FROM tasks t
+                 WHERE t.status = 'pending'
+                   AND t.date > %s
+                   AND {_NOT_PAUSED}
+                 ORDER BY t.date, t.time_start NULLS LAST, t.id
+            """, (after,))
+            return cur.fetchall()
+
+
 def tasks_for_range(start: date, end: date) -> List[Dict[str, Any]]:
     """
     Задачи за отрезок дней, включая обе границы. Основа сводок

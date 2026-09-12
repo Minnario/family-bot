@@ -22,8 +22,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from db import (list_templates, tasks_backlog, tasks_daily, tasks_for_date,
-                tasks_for_range, tasks_overdue, deadlines_soon)
+from db import (list_templates, tasks_backlog, tasks_beyond, tasks_daily,
+                tasks_for_date, tasks_for_range, tasks_overdue,
+                deadlines_soon)
 
 ASSIGNEE_RU = {
     "seva": "Сева", "gleb": "Глеб", "kamilla": "Камилла",
@@ -386,6 +387,19 @@ def _build_period(today: date, days: int, icon: str, heading: str
             lines.append(f"<b>{label}</b>")
         lines.append(f"  {task_line(t)}")
 
+    # Что осталось за горизонтом. Не перечисляем — сводка и так длинная,
+    # но и молчать нельзя: иначе задача на декабрь невидима до декабря,
+    # и человек записывает её второй раз «на всякий случай».
+    #
+    # Куда идти за подробностями, говорим прямо: угадывать команду
+    # по намёку человек не обязан.
+    beyond = len(tasks_beyond(last))
+    if beyond:
+        lines.append("")
+        lines.append(f"<i>После {last.day} {MONTHS_RU[last.month - 1]} "
+                     f"ещё {beyond} {plural_tasks(beyond)} — "
+                     f"смотри «сводка вся».</i>")
+
     return "\n".join(lines), period_buttons(tasks, today)
 
 
@@ -468,6 +482,22 @@ def build_all(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     else:
         lines += ["", "На ближайший месяц ничего не запланировано."]
 
+    # Всё, что за горизонтом месяца. Общая сводка на то и общая:
+    # если задача записана, она должна быть здесь видна, даже если
+    # до неё полгода. Потолка по датам нет.
+    #
+    # Дата собирается через day_label(): для дальних дат она уже даёт
+    # «ЧТ 23.10», то есть день недели с числом — отдельная группировка
+    # по месяцам не нужна.
+    beyond = tasks_beyond(last)
+    if beyond:
+        lines += ["", "📆 <b>Дальше:</b>"]
+        for t in beyond:
+            tl = time_label(t)
+            lines.append(f"  {far_date(t['date'], today)}"
+                         f"{'  ' + tl if tl else ''}  "
+                         f"{name_prefix(t)}{escape(t['title'])}")
+
     if backlog:
         lines += ["", "📌 <b>Отдельные дела:</b>"]
         for t in backlog:
@@ -481,6 +511,34 @@ def build_all(today: date) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
         lines += [daily_line(t) for t in daily]
 
     return "\n".join(lines), None
+
+
+def plural_tasks(n: int) -> str:
+    """
+    «1 задача», «3 задачи», «5 задач».
+
+    Нужно ровно в одном месте — в счётчике за горизонтом сводки, — но
+    «ещё 3 задач» в сообщении, которое семья видит каждый день, читается
+    как недоделка.
+    """
+    if n % 10 == 1 and n % 100 != 11:
+        return "задача"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return "задачи"
+    return "задач"
+
+
+def far_date(value: date, today: date) -> str:
+    """
+    Дата для блока «Дальше»: «ЧТ 23.10», а для другого года «01.03.27».
+
+    Без года «01.03» непонятно: это первое марта следующего года или
+    уже прошедшее. В обычных сводках такого не бывает — их горизонт
+    месяц, — а здесь потолка нет вовсе.
+    """
+    if value.year != today.year:
+        return value.strftime("%d.%m.%y")
+    return f"{WEEKDAYS_SHORT[value.weekday()]} {value.strftime('%d.%m')}"
 
 
 def rule_label(tpl: Dict[str, Any]) -> str:
