@@ -22,8 +22,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from db import (cancel_task, complete_task, create_tasks, create_template,
                 drop_future_instances, expand_templates, find_active_template,
-                get_task, list_open_tasks, log_message, reschedule_task,
-                update_template)
+                get_task, list_open_tasks, log_message, marked_habits,
+                reschedule_task, update_template)
 from parser import ParseError, parse, TZ
 
 # Логгер модуля. Настройку уровня и формата делает bot.py, поэтому
@@ -269,7 +269,10 @@ def _run_command(kind: str, today: date) -> Reply:
     elif kind == "backlog":
         text, kb = build_backlog(today)
     elif kind == "daily":
-        text, kb = build_daily()
+        # Отметки читаются из базы, а не берутся пустыми: иначе новый
+        # вызов команды рисует чистые галочки, а нажатие на такую
+        # кнопку снимает отметку, которая на самом деле стоит.
+        text, kb = build_daily(marked_habits(today))
     elif kind == "help":
         text, kb = build_help()
     else:

@@ -605,7 +605,7 @@ def build_rules() -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     return "\n".join(lines), rule_buttons(active + paused)
 
 
-def build_daily(marked: frozenset = frozenset()
+def build_daily(marked: frozenset
                 ) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     """
     Ежедневные дела с отметками «сделал сегодня».
@@ -614,6 +614,12 @@ def build_daily(marked: frozenset = frozenset()
     набор отмеченных сегодня, его читает вызывающая сторона из базы:
     вёрстка сама в базу за отметками не ходит, чтобы её можно было
     проверять без подключения.
+
+    Значения по умолчанию у `marked` нет намеренно. Сначала было
+    пустое множество — и один из трёх вызовов остался без отметок:
+    команда «ежедневные» рисовала чистые галочки, а нажатие на такую
+    кнопку снимало отметку, которая на самом деле стояла. Забыть
+    аргумент теперь нельзя, Python не даст.
     """
     daily = tasks_daily()
 
