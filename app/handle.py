@@ -798,7 +798,7 @@ def handle_message(text: str,
     if command:
         return command
 
-    open_tasks = list_open_tasks()
+    open_tasks = list_open_tasks(today)
 
     # --- разбор ---
     try:
