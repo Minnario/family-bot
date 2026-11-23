@@ -637,7 +637,7 @@ def delete_template(template_id: int) -> Optional[Dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute("""
                 DELETE FROM task_templates WHERE id = %s
-                RETURNING id, title
+                RETURNING id, title, assignee, weekdays
             """, (template_id,))
             return cur.fetchone()
 

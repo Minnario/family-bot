@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).parent))
 
 from db import (cancel_task, complete_task, create_tasks, create_template,
-                drop_future_instances, expand_templates, find_active_template,
+                delete_template, drop_future_instances, expand_templates, find_active_template,
                 get_task, list_open_tasks, log_message, marked_habits,
                 reschedule_task, update_template)
 from parser import ParseError, parse, TZ
@@ -397,6 +397,37 @@ def _resolve_by_active_hours(text: str,
 
     inside = [o for o, t in pairs if ACTIVE_FROM <= t <= ACTIVE_TO]
     return inside[0] if len(inside) == 1 else None
+
+
+# ------------------------------------------------------------------
+# Отмена правила недели целиком
+# ------------------------------------------------------------------
+# 23 ноября «Глеб отменить тренировка гейлик все» ответило «Отменил»,
+# но в сводке тренировки остались, и каждую неделю появлялись снова.
+# Отмена работает с одной строкой task_id — экземпляром на конкретный
+# день. Правило недели оставалось живым, и развёртка в 03:30 выкладывала
+# следующие недели заново. Удалить правило можно было только кнопкой
+# в списке «правила», а фраза до него не доходила вовсе.
+#
+# Признак механический — слово про охват во фразе плюс template_id у
+# задачи, — поэтому в коде, а не в промпте. Модели остаётся найти
+# задачу, как и раньше.
+
+RULE_SCOPE = re.compile(
+    r"\b(?:все|всё|всех|насовсем|совсем|навсегда|каждую|каждый|каждое"
+    r"|еженедельн\w*|правило)\b|больше не")
+
+
+# Конкретный день перевешивает: «отменить тренировку сегодня, все
+# болеют» — про один раз, «все» тут не про расписание. Ошибка в эту
+# сторону дешевле: правило выживет, а удалённое назад не вернуть.
+ONE_DAY = re.compile(r"\b(?:сегодня|завтра|послезавтра)\b|на этой неделе")
+
+
+def _wants_whole_rule(text: str) -> bool:
+    """True, если фраза просит убрать повторяющееся дело целиком."""
+    low = text.lower()
+    return bool(RULE_SCOPE.search(low)) and not ONE_DAY.search(low)
 
 
 # ------------------------------------------------------------------
@@ -890,10 +921,35 @@ def handle_message(text: str,
         tid = result.get("task_id")
         if not tid:
             return Reply("Не понял, что отменить.", None)
+        target = get_task(tid)
         task = cancel_task(tid)
         if not task:
             return Reply("Такой открытой задачи нет.", None)
-        return Reply(f"🗑 Отменил: {task['title']}", None)
+
+        tpl_id = (target or {}).get("template_id")
+        if tpl_id and _wants_whole_rule(text):
+            # Тот же порядок, что у кнопки удаления в bot.py: сначала
+            # убрать будущие экземпляры, потом само правило. Обратный
+            # порядок не сработает — ON DELETE SET NULL отвяжет задачи,
+            # и найти их по template_id будет уже нельзя.
+            dropped = drop_future_instances(tpl_id, today)
+            tpl = delete_template(tpl_id)
+            if tpl:
+                who = ASSIGNEE_RU.get(tpl.get("assignee"))
+                name = f"{who} — {tpl['title']}" if who else tpl["title"]
+                days = " ".join(WEEKDAYS_SHORT[d] for d in tpl["weekdays"])
+                log.info("правило %s удалено фразой, снято задач: %d",
+                         tpl_id, dropped + 1)
+                return Reply(f"🗑 Убрал насовсем: {name} ({days}).\n"
+                             f"Больше не повторяется.", None)
+
+        reply = f"🗑 Отменил: {task['title']}"
+        if tpl_id:
+            # Без подсказки человек думает, что отменил всё, а через
+            # неделю дело возвращается — ровно так баг и заметили.
+            reply += ("\nЭто одно занятие из расписания, остальные недели "
+                      "остаются.\nУбрать насовсем: допиши «все».")
+        return Reply(reply, None)
 
     # --- пока не реализовано ---
     # Честный ответ вместо молчания. Молчащий бот выглядит как сломанный,
